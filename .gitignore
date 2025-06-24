@@ -1,0 +1,47 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+# C extensions
+*.so
+# Distribution / packaging
+.Python
+build/
+dist/
+develop-eggs/
+*.egg-info
+.eggs/
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+# Editors
+*.sublime-project
+*.sublime-workspace
+.vscode/
+.idea/
+*.swp
+*~
+# Mac
+.DS_Store
+# Logs
+*.log
+# MyPy
+.mypy_cache/
+# pytest
+.pytest_cache/
+# Notebooks
+.ipynb_checkpoints
+# coverage
+.coverage
+# Other files
+Memoria/
+QBF.pdf
+QBF2.pdf
+TODO.txt
+ejemplo_gestion_memoria_TFG.pdf
