@@ -42,8 +42,10 @@ def _rename_variables(quantifiers: List[QBlock], clauses: CNF_Formula) -> None:
                 clauses[i][j] = -old2new[-lit]
 
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True) -> bool:
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = False) -> bool:
     """
+    TODO: eliminate_first = True dos UNSAT (t1.q y t2.q) no funcionan. Donde está el error? 
+        En conjunction, disyunction? 
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eificiente y quitar los flags y comprobaciones
     """
     if ccnf == True: return True
@@ -111,8 +113,11 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
     #print("Finished renaming!")
     
     #print('Compactifying formula...')
-    ccnf = compactify(clauses, False, True)
+    #t0 = time()
+    ccnf = compactify(clauses, False, True, True)
+    #t1 = time()
     #print('Compactified!')
+    #print(f"Time: {t1 - t0 : .4f} s")
 
     #print("Eliminating variables...")
     #gc.set_debug(gc.DEBUG_STATS | gc.DEBUG_COLLECTABLE | gc.DEBUG_UNCOLLECTABLE)
@@ -152,7 +157,7 @@ def test_inf_solver():
     for filename_sat in os.listdir(directory_sat):
         if filename_sat in exclude:
             continue
-        print(f'--- Processing {filename_sat} ... ', end='', flush=True)
+        print(f'--- Processing {filename_sat} ... ', flush=True)
         file_path = os.path.join(directory_sat, filename_sat)
         nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
         #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"
@@ -170,7 +175,7 @@ def test_inf_solver():
 
     print('\nProcessing UNSAT ...')
     for filename_unsat in os.listdir(directory_unsat):
-        print(f'--- Processing {filename_unsat} ... ', end='', flush=True)
+        print(f'--- Processing {filename_unsat} ... ', flush=True)
         file_path = os.path.join(directory_unsat, filename_unsat)
         nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
         #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"

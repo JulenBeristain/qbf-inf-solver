@@ -32,7 +32,7 @@ class CCNF:
         CCNF._created = 0
     ###################################
 
-    def create_node(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool):
+    def create_node(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool) -> Tuple:
         """
         TODO: microoptimización dejar de usar esta función y llamar directamente al constructor de tuplas
         """
@@ -71,7 +71,9 @@ class CCNF:
     #######################
     # BOOLEAN OPERATIONS
     #######################
-    def conjunction(tree1: Tuple | bool, tree2: Tuple | bool, use_direct_association = True) -> Tuple | bool:
+    def conjunction(tree1: Tuple | bool, tree2: Tuple | bool, 
+                    use_direct_association = True,
+                    simplify = False) -> Tuple | bool:
         """
         Returns the conjunction between two C-CNF formulas.
         """
@@ -87,38 +89,54 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            conj_abs = CCNF.conjunction(tree1[3], tree2[3])
+            conj_abs = CCNF.conjunction(tree1[3], tree2[3], simplify=simplify)
             if conj_abs == False:
                 return False
-            conj_neg = CCNF.conjunction(tree1[1], tree2[1])
-            conj_pos = CCNF.conjunction(tree1[2], tree2[2])
+            conj_neg = CCNF.conjunction(tree1[1], tree2[1], simplify=simplify)
+            conj_pos = CCNF.conjunction(tree1[2], tree2[2], simplify=simplify)
             if conj_neg == False and conj_pos == False:
                 return False
-            if conj_abs == True and conj_neg == True and conj_pos == True:
-                return True
-            return CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
-        
+            if conj_neg == True and conj_pos == True:
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
+            if simplify:
+                return CCNF.simplify_ccnf(phi)
+            else:
+                return phi
+
+
         # Different maximum variables
         # Commutativity
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
 
-        conj_abs = CCNF.conjunction(tree1[3], tree2)
+        conj_abs = CCNF.conjunction(tree1[3], tree2, simplify=simplify)
         if conj_abs == False:
             return False
 
         if use_direct_association:
-            return CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs)
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs)
+            if simplify:
+                return CCNF.simplify_ccnf(phi)
+            else:
+                return phi
         else:
-            conj_neg = CCNF.conjunction(tree1[1], tree2)
-            conj_pos = CCNF.conjunction(tree1[2], tree2)
+            conj_neg = CCNF.conjunction(tree1[1], tree2, simplify=simplify)
+            conj_pos = CCNF.conjunction(tree1[2], tree2, simplify=simplify)
             if conj_neg == False and conj_pos == False:
                 return False
-            if conj_abs == True and conj_neg == True and conj_pos == True:
-                return True
-            return CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
-    
-    def disjunction(tree1: Tuple | bool, tree2: Tuple | bool) -> Tuple | bool:
+            if conj_neg == True and conj_pos == True:
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
+            if simplify:
+                return CCNF.simplify_ccnf(phi)
+            else:
+                return phi
+
+    def disjunction(tree1: Tuple | bool, tree2: Tuple | bool,
+                    simplify = False) -> Tuple | bool:
         """
         Returns the disjunction between two C-CNF formulas.
         """
@@ -134,40 +152,68 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            phi_3_ = CCNF.disjunction(tree1[3], tree2[3])
+            phi_3_ = CCNF.disjunction(tree1[3], tree2[3], simplify=simplify)
             if phi_3_ == False:
                 return False
             
             phi_11_ = CCNF.conjunction(tree2[1], tree2[3])
             phi_21_ = CCNF.conjunction(tree2[2], tree2[3])
             
-            phi_12_ = CCNF.disjunction(tree1[1], phi_11_)
-            phi_13_ = CCNF.disjunction(tree1[3], tree2[1])
-            phi_22_ = CCNF.disjunction(tree1[2], phi_21_)
-            phi_23_ = CCNF.disjunction(tree1[3], tree2[2])
+            phi_12_ = CCNF.disjunction(tree1[1], phi_11_, simplify=simplify)
+            phi_13_ = CCNF.disjunction(tree1[3], tree2[1], simplify=simplify)
+            phi_22_ = CCNF.disjunction(tree1[2], phi_21_, simplify=simplify)
+            phi_23_ = CCNF.disjunction(tree1[3], tree2[2], simplify=simplify)
 
             phi_14_ = CCNF.conjunction(phi_12_, phi_13_)
             phi_24_ = CCNF.conjunction(phi_22_, phi_23_)
             if phi_14_ == False and phi_24_ == False:
                 return False
-            if phi_3_ == True and phi_14_ == True and phi_24_ == True:
-                return True
-            return CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_)
-        
+            if phi_14_ == True and phi_24_ == True:
+                return phi_3_ # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_)
+            if simplify:
+                return CCNF.simplify_ccnf(phi)
+            else:
+                return phi
+            
         # Commutativity
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
         
-        disj_abs = CCNF.disjunction(tree1[3], tree2)
+        disj_abs = CCNF.disjunction(tree1[3], tree2, simplify)
         if disj_abs == False:
             return False
-        disj_neg = CCNF.disjunction(tree1[1], tree2)
-        disj_pos = CCNF.disjunction(tree1[2], tree2)
+        disj_neg = CCNF.disjunction(tree1[1], tree2, simplify)
+        disj_pos = CCNF.disjunction(tree1[2], tree2, simplify)
         if disj_neg == False and disj_pos == False:
             return False
-        if disj_abs == True and disj_neg == True and disj_pos == True:
-            return True
-        return CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs)
+        if disj_neg == True and disj_pos == True:
+            return disj_abs # Ya sea True o Tuple
+        
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs)
+        if simplify:
+            return CCNF.simplify_ccnf(phi)
+        else:
+            return phi
+
+    def simplify_ccnf(tree: Tuple) -> Tuple | bool:
+        """
+        TODO: tal vez se puede plantear de manera iterativa
+        """
+        if CCNF.equals(tree[1], tree[2]):
+            phi = CCNF.conjunction(tree[1], tree[3], simplify=False)
+            return CCNF.simplify_ccnf(phi)
+        
+        if CCNF.equals(tree[1], tree[3]):
+            phi = CCNF.create_node(tree[0], True, tree[2], tree[3])
+            return CCNF.simplify_ccnf(phi)
+
+        if CCNF.equals(tree[2], tree[3]):
+            phi = CCNF.create_node(tree[0], tree[1], True, tree[3])
+            return CCNF.simplify_ccnf(phi)
+        
+        return tree
 
     ###
     # MEMORY TROUBLE-SHOOTING
@@ -354,7 +400,7 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> CNF_Formula:
             j += 1
         i -= 1
 
-def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautologies = True) -> Tuple | bool:
+def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautologies = True, simplify = False) -> Tuple | bool:
     """
     The idea is to have a ternary tree with a level for each variable in the CNF.
     """
@@ -381,10 +427,10 @@ def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautolo
     # be found as the base case in _compactify, and we would obtain a totally equivalent answer.
     #   Could be interesting to test if using it is faster or slower (TODO testing)
 
-    return _compactify(clauses)
+    return _compactify(clauses, simplify=simplify)
     
 
-def _compactify(clauses: CNF_Formula) -> Tuple | bool:
+def _compactify(clauses: CNF_Formula, simplify = False) -> Tuple | bool:
     """
     Auxiliar recursive function for compactify.
 
@@ -429,16 +475,21 @@ def _compactify(clauses: CNF_Formula) -> Tuple | bool:
         phi3.append(clauses[i])
         i += 1
 
-    absTree = _compactify(phi3)
+    absTree = _compactify(phi3, simplify=simplify)
     if absTree == False:
         return False
-    negTree = _compactify(phi1)
-    posTree = _compactify(phi2)
+    negTree = _compactify(phi1, simplify=simplify)
+    posTree = _compactify(phi2, simplify=simplify)
     if negTree == False and posTree == False:
         return False
-    if absTree == True and negTree == True and posTree == True:
-        return True
-    return CCNF.create_node(vn, negTree, posTree, absTree)
+    if negTree == True and posTree == True:
+        return absTree # Ya sea True o Tuple
+    
+    phi = CCNF.create_node(vn, negTree, posTree, absTree)
+    if simplify:
+        return CCNF.simplify_ccnf(phi)
+    else:
+        return phi
 
 #########################################################################################
 ### TESTS
