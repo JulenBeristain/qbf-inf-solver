@@ -12,11 +12,13 @@ from sys import getsizeof
 ##############################################################################################
 ### COMPACTIFY ###############################################################################
 
-class C_CNF_Tree:
+class CCNF:
     """
-    Note: this structure is identical to the one we need to implement for C-DNFs. The only things that will
-        change are the interpretation of the structure (when do conjunctions and disjunctions happen), and
-        possibly the management of the True and False literals in the boolean operations.
+    Class that contains only static methods to work with nested 4-tuples (id + ternary tree)
+    that represent formulas in the CCNF form.
+
+    TODO: a microoptimization would be to delete this class altogether and define all the following
+        static methods as free functions.
     """
     
     ###################################
@@ -24,198 +26,162 @@ class C_CNF_Tree:
     _created = 0
 
     def num_nodes_created():
-        return C_CNF_Tree._created
+        return CCNF._created
     
     def restart_node_counter():
-        C_CNF_Tree._created = 0
+        CCNF._created = 0
     ###################################
 
-    def __init__(self, v: PositiveInt | bool, negTree: Optional['C_CNF_Tree'], 
-                 posTree: Optional['C_CNF_Tree'], absTree: Optional['C_CNF_Tree']):
+    def create_node(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool):
         """
-        PRE: the three trees have to be of the same type, C_CNF_Tree or None, no mixtures.
+        TODO: microoptimización dejar de usar esta función y llamar directamente al constructor de tuplas
         """
-        #if isinstance(v, bool): #sabemos que los tres subárboles serán None (o directamente los ignoramos)
-        #    self.v = v
-        #    self.negative = self.positive = self.absent = None
-        #else:   # sabemos que ninguno de los tres subárboles será None (precondición)
-        #    if absTree.is_false():
-        #        self.v = False
-        #        self.negative = self.positive = self.absent = None
-        #    elif negTree.is_false() and posTree.is_false():
-        #        self.v = False
-        #        self.negative = self.positive = self.absent = None
-        #    elif negTree.is_true() and posTree.is_true() and absTree.is_true():
-        #        self.v = True
-        #        self.negative = self.positive = self.absent = None
-        #    else:
-        #        self.v = v
-        #        self.negative = negTree
-        #        self.positive = posTree
-        #        self.absent = absTree
-        C_CNF_Tree._created += 1
+        CCNF._created += 1
 
-        self.v = v
-        self.negative = negTree
-        self.positive = posTree
-        self.absent = absTree
-        # Si en algún punto llaman al constructor con estos valores, quiere decir que la fórmula no estaba
-        # totalmente simplificada. Para detectar en compactify nos podría servir, pero en las operaciones 
-        # booleanas somos nosotros quienes tenemos que simplificar la fórmula. Por tanto, en vez de simplemente
-        # hacer assert, vamos a comprobar estas condiciones al principio de la inicialización, y devolver 
-        # el árbol correspondiente al literal True o False que toque. -->
-        #   --> Realmente, es mejor hacer estas comprobaciones donde se necesitan, porque podemos ahorrarnos
-        #       chequeos redundantes y llamadas a operaciones innecesarias
-        if isinstance(v, bool):
-            assert (absTree is None) and (negTree is None) and (posTree is None)
-        else:
-            assert not absTree.is_false(), \
-            f"Variable [{v}]: se incumple ψ3 /= false !!!"
-            assert (not negTree.is_false()) or (not posTree.is_false()), \
-                f"Variable [{v}]: se incumple ψ1 /= false or ψ2 /= false !!!"
-            assert (not absTree.is_true()) or (not posTree.is_true()) or (not negTree.is_true()), \
-                f"Variable [{v}]: se incumple ψ1 /= true or ψ2 /= true or ψ3 /= true !!!"
+        assert not absTree == False, \
+        f"Variable [{v}]: se incumple ψ3 /= false !!!"
+        assert (not negTree == False) or (not posTree == False), \
+            f"Variable [{v}]: se incumple ψ1 /= false or ψ2 /= false !!!"
+        assert (not absTree == True) or (not posTree == True) or (not negTree == True), \
+            f"Variable [{v}]: se incumple ψ1 /= true or ψ2 /= true or ψ3 /= true !!!"
 
+        return (v, negTree, posTree, absTree)
 
-    def is_true(self):
-        return self is C_CNF_Tree.TRUE
-    
-    def is_false(self):
-        return self is C_CNF_Tree.FALSE
+    def pretty_print(tree: Tuple | bool, prefix="", child_label="Root"):
+        if tree == True or tree == False:
+            print(f"{prefix}[{child_label}] - {tree}")
+            return
+        
+        v, neg, pos, abs = tree
+        print(f"{prefix}[{child_label}] - {v}")
 
-    def pretty_print(self, prefix="", child_label="Root"):
-        print(f"{prefix}[{child_label}] - {self.v}") 
-        if any([self.negative, self.positive, self.absent]):
-            child_prefix = prefix + "   "
-            self.negative.pretty_print(child_prefix, "¬")
-            self.positive.pretty_print(child_prefix, "+")
-            self.absent.pretty_print(child_prefix, "0")
+        child_prefix = prefix + "   "
+        CCNF.pretty_print(neg, child_prefix, "¬")
+        CCNF.pretty_print(pos, child_prefix, "+")
+        CCNF.pretty_print(abs, child_prefix, "0")
 
-    def __eq__(self, other):
-        if not isinstance(other, C_CNF_Tree): return False
-        if self.v != other.v: return False
-        if self.negative != other.negative: return False
-        if self.positive != other.positive: return False
-        return self.absent == other.absent
+    def equals(tree1: Tuple | bool, tree2: Tuple | bool):
+        """
+        TODO: potential optimization using only "is" if we make sure that each kind of 
+                tree only exists once. A mirooptmization would to be delete this function 
+                altogether.
+        """
+        return tree1 == tree2
 
     #######################
     # BOOLEAN OPERATIONS
     #######################
-    def conjunction(self, other: 'C_CNF_Tree', use_direct_association: bool = False) -> 'C_CNF_Tree':
+    def conjunction(tree1: Tuple | bool, tree2: Tuple | bool, use_direct_association = True) -> Tuple | bool:
         """
         Returns the conjunction between two C-CNF formulas.
         """
         ## Base cases
         # Identity (true is the neutral element of conjunction)
-        if self.is_true(): return other
-        if other.is_true(): return self
+        if tree1 == True: return tree2
+        if tree2 == True: return tree1
 
         # Domination (false is the dominant element of conjunction)
-        if self.is_false(): return self
-        if other.is_false(): return other
+        if tree1 == False: return False
+        if tree2 == False: return False
 
         ## Recursive cases
         # Same maximum variable in the root
-        if self.v == other.v:
-            conj_abs = self.absent.conjunction(other.absent)
-            if conj_abs.is_false():
-                return C_CNF_Tree.FALSE
-            conj_neg = self.negative.conjunction(other.negative)
-            conj_pos = self.positive.conjunction(other.positive)
-            if conj_neg.is_false() and conj_pos.is_false():
-                return C_CNF_Tree.FALSE
-            if conj_abs.is_true() and conj_neg.is_true() and conj_pos.is_true():
-                return C_CNF_Tree.TRUE
-            return C_CNF_Tree(self.v, conj_neg, conj_pos, conj_abs)
+        if tree1[0] == tree2[0]:
+            conj_abs = CCNF.conjunction(tree1[3], tree2[3])
+            if conj_abs == False:
+                return False
+            conj_neg = CCNF.conjunction(tree1[1], tree2[1])
+            conj_pos = CCNF.conjunction(tree1[2], tree2[2])
+            if conj_neg == False and conj_pos == False:
+                return False
+            if conj_abs == True and conj_neg == True and conj_pos == True:
+                return True
+            return CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
         
         # Different maximum variables
         # Commutativity
-        if self.v > other.v:
-            big, little = self, other
-        else:
-            big, little = other, self
-        # Note: no need to make a copy of little nor big because neither of them (or self and other previously) are modified.
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
 
-        conj_abs = big.absent.conjunction(little)
-        if conj_abs.is_false():
-            return C_CNF_Tree.FALSE
+        conj_abs = CCNF.conjunction(tree1[3], tree2)
+        if conj_abs == False:
+            return False
 
         if use_direct_association:
-            return C_CNF_Tree(big.v, big.negative, big.positive, conj_abs)
+            return CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs)
         else:
-            conj_neg = big.negative.conjunction(little)
-            conj_pos = big.positive.conjunction(little)
-            if conj_neg.is_false() and conj_pos.is_false():
-                return C_CNF_Tree.FALSE
-            if conj_abs.is_true() and conj_neg.is_true() and conj_pos.is_true():
-                return C_CNF_Tree.TRUE
-            return C_CNF_Tree(big.v, conj_neg, conj_pos, conj_abs)
+            conj_neg = CCNF.conjunction(tree1[1], tree2)
+            conj_pos = CCNF.conjunction(tree1[2], tree2)
+            if conj_neg == False and conj_pos == False:
+                return False
+            if conj_abs == True and conj_neg == True and conj_pos == True:
+                return True
+            return CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
     
-    def disjunction(self, other: 'C_CNF_Tree') -> 'C_CNF_Tree':
+    def disjunction(tree1: Tuple | bool, tree2: Tuple | bool) -> Tuple | bool:
         """
         Returns the disjunction between two C-CNF formulas.
         """
         ## Base cases
         # Identity (false is the neutral element of disjunction)
-        if self.is_false(): return other
-        if other.is_false(): return self
+        if tree1 == False: return tree2
+        if tree2 == False: return tree1
 
         # Domination (true is the dominant element of disjunction)
-        if self.is_true(): return self
-        if other.is_true(): return other
+        if tree1 == True: return True
+        if tree2 == True: return True
 
         ## Recursive cases
         # Same maximum variable in the root
-        if self.v == other.v:
-            phi_3_ = self.absent.disjunction(other.absent)
-            if phi_3_.is_false():
-                return C_CNF_Tree.FALSE
+        if tree1[0] == tree2[0]:
+            phi_3_ = CCNF.disjunction(tree1[3], tree2[3])
+            if phi_3_ == False:
+                return False
             
-            phi_11_ = other.negative.conjunction(other.absent)
-            phi_21_ = other.positive.conjunction(other.absent)
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3])
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3])
             
-            phi_12_ = self.negative.disjunction(phi_11_)
-            phi_13_ = self.absent.disjunction(other.negative)
-            phi_22_ = self.positive.disjunction(phi_21_)
-            phi_23_ = self.absent.disjunction(other.positive)
+            phi_12_ = CCNF.disjunction(tree1[1], phi_11_)
+            phi_13_ = CCNF.disjunction(tree1[3], tree2[1])
+            phi_22_ = CCNF.disjunction(tree1[2], phi_21_)
+            phi_23_ = CCNF.disjunction(tree1[3], tree2[2])
 
-            phi_14_ = phi_12_.conjunction(phi_13_)
-            phi_24_ = phi_22_.conjunction(phi_23_)
-            if phi_14_.is_false() and phi_24_.is_false():
-                return C_CNF_Tree.FALSE
-            if phi_3_.is_true() and phi_14_.is_true() and phi_24_.is_true():
-                return C_CNF_Tree.TRUE
-            return C_CNF_Tree(self.v, phi_14_, phi_24_, phi_3_)
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_)
+            if phi_14_ == False and phi_24_ == False:
+                return False
+            if phi_3_ == True and phi_14_ == True and phi_24_ == True:
+                return True
+            return CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_)
         
         # Commutativity
-        if self.v > other.v:
-            big, little = self, other
-        else:
-            big, little = other, self
-
-        # Note: no need to make a copy of little nor big because neither of them (or self and other previously) are modified.
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
         
-        disj_abs = big.absent.disjunction(little)
-        if disj_abs.is_false():
-            return C_CNF_Tree.FALSE
-        disj_neg = big.negative.disjunction(little)
-        disj_pos = big.positive.disjunction(little)
-        if disj_neg.is_false() and disj_pos.is_false():
-            return C_CNF_Tree.FALSE
-        if disj_abs.is_true() and disj_neg.is_true() and disj_pos.is_true():
-            return C_CNF_Tree.TRUE
-        return C_CNF_Tree(big.v, disj_neg, disj_pos, disj_abs)
+        disj_abs = CCNF.disjunction(tree1[3], tree2)
+        if disj_abs == False:
+            return False
+        disj_neg = CCNF.disjunction(tree1[1], tree2)
+        disj_pos = CCNF.disjunction(tree1[2], tree2)
+        if disj_neg == False and disj_pos == False:
+            return False
+        if disj_abs == True and disj_neg == True and disj_pos == True:
+            return True
+        return CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs)
 
     ###
     # MEMORY TROUBLE-SHOOTING
     ###
-    def depth(self):
-        if self.is_false() or self.is_true():
+    def depth(tree: Tuple | bool) -> int:
+        if tree == False or tree == True:
             return 1
-        return 1 + max(self.negative.depth(), self.positive.depth(), self.absent.depth())
+        return 1 + max(CCNF.depth(tree[1]), CCNF.depth(tree[2]), CCNF.depth(tree[3]))
 
-    def max_nodes(self):
-        max_v = self.v
+    def max_nodes(tree: Tuple | bool) -> int:
+        if tree == False or tree == True:
+            return 0
+        
+        max_v = tree[0]
         nodes = 0
         for i in range(max_v):
             """
@@ -226,75 +192,51 @@ class C_CNF_Tree:
             0 -> 3 ** max_v (really only 2, TRUE and FALSE)
             """
             nodes += 3 ** i
-        return nodes + 2
+        return nodes
 
-    """
-    def nodes(self, set_nodes = None):
-        if set_nodes is None:
-            set_nodes = {id(self)}
-            new_node = 1
-        else:
-            if id(self) in set_nodes:
-                new_node = 0
-            else:
-                set_nodes.add(id(self))
-                new_node = 1
-        neg = 0 if self.negative is None else self.negative.nodes(set_nodes)
-        pos = 0 if self.positive is None else self.positive.nodes(set_nodes)
-        abs = 0 if self.absent is None else self.absent.nodes(set_nodes)
-        return new_node + neg + pos + abs
-    """
-    def nodes(self):
-        if self.is_true() or self.is_false():
+    def nodes(tree: Tuple | bool) -> int:
+        if tree == False or tree == True:
             return 0
-        return 1 + self.negative.nodes() + self.positive.nodes() + self.absent.nodes()
+        return 1 + CCNF.nodes(tree[1]) + CCNF.nodes(tree[2]) + CCNF.nodes(tree[3])
 
-    def size(self):
-        return get_total_size(self)
+    def size(tree: Tuple | bool) -> int:
+        return get_total_size(tree)
             
-    def contains_true(self):
-        if self.is_true():
+    def contains_true(tree):
+        if tree == True:
             return True
         
-        if self.is_false():
+        if tree == False:
             return False
         
-        if self.negative.contains_true():
+        if CCNF.contains_true(tree[1]):
             return True
         
-        if self.positive.contains_true():
+        if CCNF.contains_true(tree[2]):
             return True
         
-        if self.absent.contains_true():
+        if CCNF.contains_true(tree[3]):
             return True
 
         return False
 
-    def contains_false(self):
-        if self.is_false():
+    def contains_false(tree):
+        if tree == False:
             return True
         
-        if self.is_true():
+        if tree == True:
             return False
         
-        if self.negative.contains_false():
+        if CCNF.contains_false(tree[1]):
             return True
         
-        if self.positive.contains_false():
+        if CCNF.contains_false(tree[2]):
             return True
         
-        if self.absent.contains_false():
+        if CCNF.contains_false(tree[3]):
             return True
 
         return False
-
-###
-# STATIC INSTANCES OF C_CNF_TREE THAT REPRESENT TRUE AND FALSE
-# The leaves of the trees are always formed by True or False literal trees
-# Having them only once in memory saves some memory, we only need references to these to static constants
-##
-C_CNF_Tree.TRUE = C_CNF_Tree(True, None, None, None)
-C_CNF_Tree.FALSE = C_CNF_Tree(False, None, None, None)
 
 # TODO: una idea interesante inspirado en la no repetición de TRUE y FALSE sería tratar de evitar también la 
 #   repetición de nodos idénticos desde abajo hasta arriba. En el caso de los nodos que directamente referencian
@@ -412,29 +354,9 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> CNF_Formula:
             j += 1
         i -= 1
 
-def compactify(clauses: CNF_Formula, absorb_with_prefixes: bool = False, check_tautologies = True) -> C_CNF_Tree:
+def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautologies = True) -> Tuple | bool:
     """
-    Note: this algorithm is almost identical to the one needed for C-DNFs. The only thing that changes 
-        are the basic cases in _compactify, where we would need to return True instead of False and 
-        viceversa.
-
-    Note: the idea is to have a ternary tree with a level for each variable in the CNF. Nonetheless,
-        it could happen that a particular phi_i does not have the next v_n-1, so in that corresponding
-        subtree we will have a variable less than n-1 in the level that in theory belongs to v_n-1.
-        We can interpret that the branch (the edge) "is longer" until the subtree is reached.
-
-    CAREFUL HERE: another possibility is to enforce each level for each variable. In that case, if a 
-        particular phi_i does not contain the vn corresponding to that level, simply the ¬ and + 
-        branches end with a True.
-        To make this implementation we would check for the same base cases as _compactify once, if
-        we are not in any of those two cases we would take the greates vn (the first one), and finally
-        we would perform a recursion from vn until 0 was reached.
-        This second version spends more space in memory. So, unless it is necessary or helpfull to 
-        implement the boolean operations more efficiently (or at all), I will stick to the first 
-        implementation.
-        I would say that this second version is the conceptually more clear one, and strictly 
-        speaking, the one proposed in the algorithm. But I am not sure. From the point of view of
-        recursion, the first one is perfectly valid (or even more) and, as said, more efficient spatially.
+    The idea is to have a ternary tree with a level for each variable in the CNF.
     """
     # First, we order each clause considering absolute values (we assume that v and -v are not in the same clause, because
     # then it would be a tautology)
@@ -462,7 +384,7 @@ def compactify(clauses: CNF_Formula, absorb_with_prefixes: bool = False, check_t
     return _compactify(clauses)
     
 
-def _compactify(clauses: CNF_Formula) -> C_CNF_Tree:
+def _compactify(clauses: CNF_Formula) -> Tuple | bool:
     """
     Auxiliar recursive function for compactify.
 
@@ -472,14 +394,14 @@ def _compactify(clauses: CNF_Formula) -> C_CNF_Tree:
     # Si cláusulas vacías, entonces tenemos el literal True (elemento neutro de la conjunción)
     num_clauses = len(clauses)
     if num_clauses == 0:
-        return C_CNF_Tree.TRUE
+        return True
     
     # Si contiene la cláusula vacía, entonces tenemos el literal False (elemento neutro de disyunción y dominante de conjunción)
     # Además, por la forma en la que hemos ordenado las cláusulas, la cláusula vacía vendrá al principio en todo caso. Por lo que 
     # es suficiente mirar la primera cláusula; el coste de esta comprobación es O(1). Y como último detalle, solo habrá una cláusula
     # vacía en todo caso, por haber absorbido los prefijos y las cláusulas idénticas.
     if len(clauses[0]) == 0:
-        return C_CNF_Tree.FALSE
+        return False
 
     vn = abs(clauses[0][0])
 
@@ -508,15 +430,15 @@ def _compactify(clauses: CNF_Formula) -> C_CNF_Tree:
         i += 1
 
     absTree = _compactify(phi3)
-    if absTree.is_false():
-        return C_CNF_Tree.FALSE
+    if absTree == False:
+        return False
     negTree = _compactify(phi1)
     posTree = _compactify(phi2)
-    if negTree.is_false() and posTree.is_false():
-        return C_CNF_Tree.FALSE
-    if absTree.is_true() and negTree.is_true() and posTree.is_true():
-        return C_CNF_Tree.TRUE
-    return C_CNF_Tree(vn, negTree, posTree, absTree)
+    if negTree == False and posTree == False:
+        return False
+    if absTree == True and negTree == True and posTree == True:
+        return True
+    return CCNF.create_node(vn, negTree, posTree, absTree)
 
 #########################################################################################
 ### TESTS
@@ -528,21 +450,21 @@ def test_compactify():
     clauses_false = [[]]
 
     tree_true = compactify(deepcopy(clauses_true))
-    assert tree_true.is_true(), "No hemos conseguido el árbol true a partir de lista vacía!!!"
+    assert tree_true == True, "No hemos conseguido el árbol true a partir de lista vacía!!!"
     tree_false = compactify(deepcopy(clauses_false))
-    assert tree_false.is_false(), "No hemos conseguido el árbol false a partir de cláusula vacía!!!"
+    assert tree_false == False, "No hemos conseguido el árbol false a partir de cláusula vacía!!!"
 
     clauses1 = [[1]]
     tree = compactify(clauses1)
-    tree.pretty_print()
+    CCNF.pretty_print(tree)
 
     clauses2 = [[-2], [2,1], [-1]]
     tree = compactify(clauses2)
-    tree.pretty_print()
+    CCNF.pretty_print(tree)
 
     clauses3 = [[-1, 2, 3], [1, -2], [2, -3], [-3, 1]]
     tree = compactify(clauses3)
-    tree.pretty_print()
+    CCNF.pretty_print(tree)
     print('-' * 50)
 
 def test_no_absortion_needed():
@@ -563,8 +485,13 @@ def test_deepcopyable():
     tree_copy = deepcopy(tree)
 
     assert tree == tree_copy, "No hemos conseguido el mismo árbol con deepcopy!!!"
-    tree_copy.v += 1
-    assert tree != tree_copy, "También se ha modificado el árbol original!!!"
+    set_trace()
+    
+    tree_modified = (1, *tree_copy[1:])
+    assert tree != tree_modified, "También se ha modificado el árbol original!!!"
+    
+    assert tree is not tree_copy, "Son la misma instancia!!!"
+    # FALSE: WITH TUPLES (IMMUTABLE), THE SAME INSTANCE IS RETURNED, NO COPY IS CREATED!
     print('-' * 50)
 
 def test_ccnf_conjunction():
@@ -577,39 +504,39 @@ def test_ccnf_conjunction():
 
     tree1 = compactify(deepcopy(clauses_true))
     tree2 = compactify(deepcopy(clauses3))
-    conj = tree1.conjunction(tree2)
+    conj = CCNF.conjunction(tree1, tree2)
     assert conj == tree2, "No hemos conseguido conjunción con True"
 
     tree1 = compactify(deepcopy(clauses_false))
     #tree2 = compactify(deepcopy(clauses3))
-    conj = tree1.conjunction(tree2)
-    assert conj.is_false(), "No hemos conseguido conjunción con False"
+    conj = CCNF.conjunction(tree1, tree2)
+    assert conj == False, "No hemos conseguido conjunción con False"
     
     tree1 = compactify(deepcopy(clauses1))
     tree2 = compactify(deepcopy(clauses2))
-    conj = tree1.conjunction(tree2)
-    conj.pretty_print()
+    conj = CCNF.conjunction(tree1, tree2)
+    CCNF.pretty_print(conj)
 
     tree1 = compactify(deepcopy(clauses2))
     tree2 = compactify(deepcopy(clauses3))
-    conj = tree1.conjunction(tree2)
-    conj.pretty_print()
+    conj = CCNF.conjunction(tree1, tree2)
+    CCNF.pretty_print(conj)
     print('-' * 50)
 
 def test_equivalent_to_false():
     print("TEST EQUIVALENT TO FALSE...")
     clauses = [[-2], [2,1], [-1]]
     tree = compactify(clauses)
-    tree.pretty_print()
+    CCNF.pretty_print(tree)
     # Efectivamente, pese a que las cláusulas son equivalentes a False directamente,
     # nuestro algoritmo compactify no es capaz de simplificarlo al literal False
 
     clauses2 = [[-2, 1]]
     tree2 = compactify(clauses2)
-    tree2.pretty_print()
+    CCNF.pretty_print(tree2)
 
-    conj = tree.conjunction(tree2)
-    conj.pretty_print()
+    conj = CCNF.conjunction(tree, tree2)
+    CCNF.pretty_print(conj)
     assert tree == conj, "No hemos conseguido que la conjunción sea igual al completo equivalente a False!!!"
     # Efectivamente, al hacer conjunción conseguimos un árbol igual al original, pero no el literal False!
     print('-' * 50)
@@ -624,23 +551,23 @@ def test_ccnf_disjunction():
 
     tree1 = compactify(deepcopy(clauses_true))
     tree2 = compactify(deepcopy(clauses3))
-    disj = tree1.disjunction(tree2)
-    assert disj.is_true(), "No hemos conseguido disyunción con True"
+    disj = CCNF.disjunction(tree1, tree2)
+    assert disj == True, "No hemos conseguido disyunción con True"
 
     tree1 = compactify(deepcopy(clauses_false))
     #tree2 = compactify(deepcopy(clauses3))
-    disj = tree1.disjunction(tree2)
+    disj = CCNF.disjunction(tree1, tree2)
     assert disj is tree2, "No hemos conseguido disyunción con False"
     
     tree1 = compactify(deepcopy(clauses1))
     tree2 = compactify(deepcopy(clauses2))
-    disj = tree1.disjunction(tree2)
-    disj.pretty_print()
+    disj = CCNF.disjunction(tree1, tree2)
+    CCNF.pretty_print(disj)
 
     tree1 = compactify(deepcopy(clauses2))
     tree2 = compactify(deepcopy(clauses3))
-    disj = tree1.disjunction(tree2)
-    disj.pretty_print()
+    disj = CCNF.disjunction(tree1, tree2)
+    CCNF.pretty_print(disj)
     print('-' * 50)
 
 ###################
@@ -666,18 +593,6 @@ def get_total_size(obj, seen=None):
     elif hasattr(obj, '__dict__'): # Para instancias de clases personalizadas
         size += get_total_size(obj.__dict__, seen) # Sumar el diccionario de atributos
     # Puedes añadir más condiciones para otros tipos específicos si es necesario
-    """
-    # INNECESARIO Y MAL IMPLEMENTADO YA QUE NO TIENE EN CUENTA EL ATRIBUTO __dict__  QUE TODA CLASE
-    # DEFINIDA POR EL USUARIO IMPLEMENTA AUTOMÁTICAMENTE! ES DECIR, EN PYTHON LAS CLASES NO SON TUPLAS
-    # DE DATOS COMO EN C/C++, SINO QUE ESTÁN IMPLEMENTADOS MEDIANTE DICCIONARIOS PARA SER MÁS DINÁMICOS!
-
-    # OJO! Optimizable usando __slots__, y en ese punto este código pasaría a ser necesario!!!
-    elif isinstance(obj, C_CNF_Tree):
-        size += get_total_size(obj.v, seen)
-        size += get_total_size(obj.negative, seen)
-        size += get_total_size(obj.positive, seen)
-        size += get_total_size(obj.absent, seen)
-    """
     return size
 ###################
 
@@ -691,10 +606,10 @@ def test_memory_sizes():
     print(f"Total size of {instance2}: {get_total_size(clauses)}")
     tree = compactify(clauses)
     print(f"Total size of the tree: {get_total_size(tree)}")
-    print(f"Depth of the tree: {tree.depth()}")
+    print(f"Depth of the tree: {CCNF.depth(tree)}")
     print(f'Number of variables: {nv}')
-    print(f"Max number of nodes: {tree.max_nodes()}")
-    print(f"Actual number of nodes: {tree.nodes()}")
+    print(f"Max number of nodes: {CCNF.max_nodes(tree)}")
+    print(f"Actual number of nodes: {CCNF.nodes(tree)}")
 
     print("-" * 30)
 
@@ -702,10 +617,10 @@ def test_memory_sizes():
     print(f"Total size of {instance2}: {get_total_size(clauses)}")
     tree = compactify(clauses)
     print(f"Total size of the tree: {get_total_size(tree)}")
-    print(f"Depth of the tree: {tree.depth()}")
+    print(f"Depth of the tree: {CCNF.depth(tree)}")
     print(f'Number of variables: {nv}')
-    print(f"Max number of nodes: {tree.max_nodes()}")
-    print(f"Actual number of nodes: {tree.nodes()}")
+    print(f"Max number of nodes: {CCNF.max_nodes(tree)}")
+    print(f"Actual number of nodes: {CCNF.nodes(tree)}")
 
 if __name__ == '__main__':
     #test_compactify()
