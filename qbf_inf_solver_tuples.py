@@ -153,6 +153,10 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     Function that receives the result of the parser and applies our QBF solver
     that takes advantage of the Inductive Normal Form.
     """
+    # Sabemos que no hay referencias circulares, por lo que desactivamos el garbage collector generacional
+    # Por supuesto, el garbage collector con el counter de las referencias sigue trabajando
+    gc.disable()
+
     #print('Renaming variables...')
     _rename_variables(quantifiers, clauses)
     #print("Finished renaming!")
