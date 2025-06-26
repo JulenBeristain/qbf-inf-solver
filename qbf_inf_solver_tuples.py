@@ -75,29 +75,31 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     print("-" * 50, flush=True)
     """
 
+    # TODO: con la instancia t1.q simplify en disjunction devuelve SAT en vez de UNSAT, aparte de que
+    #   no parece optimizar el tiempo de ejecución
     # Simplificamos la fórmula
     if q == 'a':
         # INF formula (C-CNF + universal quantifier)
         #print("Eliminating universal...")
         #print("Primera conjunción...")
-        psi = CCNF.conjunction(ccnf[1], ccnf[2])
+        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=False)
         #print("Segunda conjunción...")
-        psi = CCNF.conjunction(psi, ccnf[3])
+        psi = CCNF.conjunction(psi, ccnf[3], simplify=False)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
         #print("Eliminating existential...")
         if eliminate_first:
         #    print("Disyunción...")
-            psi = CCNF.disjunction(ccnf[2], ccnf[1])
+            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=False)
         #    print("Conjunción...")
-            psi = CCNF.conjunction(psi, ccnf[3])
+            psi = CCNF.conjunction(psi, ccnf[3], simplify=False)
         else:
         #    print("Primera conjunción...")
-            psi1 = CCNF.conjunction(ccnf[2], ccnf[3])
+            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=False)
         #    print("Segunda conjunción...")
-            psi2 = CCNF.conjunction(ccnf[1], ccnf[3])
+            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=False)
         #    print("Disyunción...")
-            psi = CCNF.disjunction(psi1, psi2)
+            psi = CCNF.disjunction(psi1, psi2, simplify=False)
     #print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
@@ -114,7 +116,9 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
     
     #print('Compactifying formula...')
     #t0 = time()
-    ccnf = compactify(clauses, False, True, True)
+    # TODO: if simplify == True, the UNSAT instance t0.q returns SAT
+    # But it doesn't seem to improve so much
+    ccnf = compactify(clauses, False, True, False)
     #t1 = time()
     #print('Compactified!')
     #print(f"Time: {t1 - t0 : .4f} s")
@@ -162,6 +166,7 @@ def test_inf_solver():
         nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
         #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"
         t0 = time()
+        #set_trace()
         res = inf_solver(quantifiers, clauses)
         t1 = time()
         print('SAT' if res else 'UNSAT')

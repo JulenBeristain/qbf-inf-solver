@@ -197,19 +197,26 @@ class CCNF:
         else:
             return phi
 
-    def simplify_ccnf(tree: Tuple) -> Tuple | bool:
+    def simplify_ccnf(tree: Tuple | bool) -> Tuple | bool:
         """
         TODO: tal vez se puede plantear de manera iterativa
         """
+        #set_trace()
+        # Necessary check if in the next case it is true and conjunction returns a boolean
+        if tree == True or tree == False:
+            return tree
+
         if CCNF.equals(tree[1], tree[2]):
             phi = CCNF.conjunction(tree[1], tree[3], simplify=False)
             return CCNF.simplify_ccnf(phi)
         
-        if CCNF.equals(tree[1], tree[3]):
+        # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
+        if tree[1] != True and CCNF.equals(tree[1], tree[3]):
             phi = CCNF.create_node(tree[0], True, tree[2], tree[3])
             return CCNF.simplify_ccnf(phi)
 
-        if CCNF.equals(tree[2], tree[3]):
+        # First condition to avoid infinite reqursion when phi_2 = phi_3 = True
+        if tree[2] != True and CCNF.equals(tree[2], tree[3]):
             phi = CCNF.create_node(tree[0], tree[1], True, tree[3])
             return CCNF.simplify_ccnf(phi)
         
