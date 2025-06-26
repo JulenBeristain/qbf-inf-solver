@@ -252,6 +252,24 @@ class CCNF:
             return 0
         return 1 + CCNF.nodes(tree[1]) + CCNF.nodes(tree[2]) + CCNF.nodes(tree[3])
 
+    def nodes_no_repetition(tree: Tuple | bool, seen = None) -> int:
+        if tree is False or tree is True:
+            return 0
+        
+        if seen is None:
+            seen = set()
+        
+        if id(tree) in seen:
+            node = 0
+        else:
+            node = 1
+            seen.add(id(tree))
+
+        return node + CCNF.nodes_no_repetition(tree[1], seen) \
+                    + CCNF.nodes_no_repetition(tree[2], seen) \
+                    + CCNF.nodes_no_repetition(tree[3], seen)
+
+
     def size(tree: Tuple | bool) -> int:
         return get_total_size(tree)
             
@@ -680,6 +698,11 @@ def test_memory_sizes():
     print(f"Max number of nodes: {CCNF.max_nodes(tree)}")
     print(f"Actual number of nodes: {CCNF.nodes(tree)}")
 
+def test_depth_x1():
+    x1 = (1, True, False, True)
+    depth = CCNF.depth(x1)
+    print(f"Depth of x1 = {depth}")
+
 if __name__ == '__main__':
     #test_compactify()
     #test_no_absortion_needed()
@@ -687,5 +710,6 @@ if __name__ == '__main__':
     #test_equivalent_to_false()
     #test_ccnf_conjunction()
     #test_ccnf_disjunction()
-    test_memory_sizes()
+    #test_memory_sizes()
+    test_depth_x1()
     pass

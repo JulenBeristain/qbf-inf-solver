@@ -41,12 +41,14 @@ def _rename_variables(quantifiers: List[QBlock], clauses: CNF_Formula) -> None:
             else:
                 clauses[i][j] = -old2new[-lit]
 
+DB_Max_v = None
+DB_Total_nodes = None
+DB_Nodes = None
+DB_Size = None
 
 def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True) -> bool:
     """
-    TODO: eliminate_first = True dos UNSAT (t1.q y t2.q) no funcionan. Donde está el error? 
-        En conjunction, disyunction? 
-    TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eificiente y quitar los flags y comprobaciones
+    TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
     if ccnf == True: return True
     if ccnf == False: return False
@@ -68,43 +70,76 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
 
     # Imprimimos la información antes de simplificar la fórmula
     #set_trace()
-    """
-    print("-" * 50)
-    print(f"Max_v = {ccnf[0]}")
-    print(f"Depth = {CCNF.depth(ccnf)}")
-    #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
-    print(f"Actual_nodes = {CCNF.nodes(ccnf)}")
-    print(f"Total_created_nodes = {CCNF.num_nodes_created()}")
-    print(f"Size = {CCNF.size(ccnf)}")
-    #objgraph.show_most_common_types()
-    print("-" * 50, flush=True)
-    """
+    #"""
+    max_v = ccnf[0]
+    depth = CCNF.depth(ccnf)
+    nodes = CCNF.nodes(ccnf)
+    nodes_no_repetition = CCNF.nodes_no_repetition(ccnf)
+    total_nodes = CCNF.num_nodes_created()
+    size = CCNF.size(ccnf)
 
-    # TODO: con la instancia t1.q simplify en disjunction devuelve SAT en vez de UNSAT, aparte de que
-    #   no parece optimizar el tiempo de ejecución
+    print("-" * 50)
+    print(f"Max_v = {max_v}")
+    print(f"Depth = {depth}")
+    #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
+    print(f"Actual_nodes               = {nodes}")
+    print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
+    print(f"Total_created_nodes = {total_nodes}")
+    print(f"Size = {size}")
+    #objgraph.show_most_common_types()
+    print(" " * 50, flush=True)
+
+    global DB_Max_v
+    global DB_Total_nodes
+    global DB_Nodes
+    global DB_Size
+
+    assert DB_Max_v is None or max_v < DB_Max_v, "No se ha eliminado una variable!!!"
+    if DB_Max_v is not None and DB_Max_v - max_v != 1:
+        print("Several variables have been removed at once!")
+    DB_Max_v = max_v
+
+    assert depth <= max_v + 1, "La profundidad supera el límite de la variable máxima!!!"
+    
+    assert nodes_no_repetition <= total_nodes, "Cómo tiene más nodos de los que se han creado?!"
+    assert DB_Total_nodes is None or total_nodes >= DB_Total_nodes, "Cómo se han creado menos nodos que los que habían antes???"
+    DB_Total_nodes = total_nodes
+
+    # Too strong assert, little variations might happen
+    cond = (DB_Nodes is None and DB_Size is None) or \
+        (nodes_no_repetition >= DB_Nodes and size >= DB_Size) or \
+        (nodes_no_repetition < DB_Nodes and size < DB_Size)
+    #assert cond, "El cambio en la cantidad de nodos no coincide con el cambio en el tamaño del árbol CCNF"
+    if not cond:
+        print(f"Ligera fluctuación en size: Nodos[{DB_Nodes} -> {nodes_no_repetition}] vs Size[{DB_Size} -> {size}]")
+    DB_Nodes = nodes_no_repetition
+    DB_Size = size
+    print(" " * 50, flush=True)
+    #"""
+
     # Simplificamos la fórmula
     if q == 'a':
         # INF formula (C-CNF + universal quantifier)
-        #print("Eliminating universal...")
-        #print("Primera conjunción...")
-        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=False)
-        #print("Segunda conjunción...")
-        psi = CCNF.conjunction(psi, ccnf[3], simplify=False)
+        print("Eliminating universal...")
+        print("Primera conjunción...")
+        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True)
+        print("Segunda conjunción...")
+        psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
-        #print("Eliminating existential...")
+        print("Eliminating existential...")
         if eliminate_first:
-        #    print("Disyunción...")
-            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=False)
-        #    print("Conjunción...")
-            psi = CCNF.conjunction(psi, ccnf[3], simplify=False)
+            print("Disyunción...")
+            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True)
+            print("Conjunción...")
+            psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
         else:
         #    print("Primera conjunción...")
-            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=False)
+            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True)
         #    print("Segunda conjunción...")
-            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=False)
+            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True)
         #    print("Disyunción...")
-            psi = CCNF.disjunction(psi1, psi2, simplify=False)
+            psi = CCNF.disjunction(psi1, psi2, simplify=True)
     #print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
@@ -121,8 +156,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     
     #print('Compactifying formula...')
     #t0 = time()
-    # TODO: if simplify == True, the UNSAT instance t0.q returns SAT
-    # But it doesn't seem to improve so much
+    # But it doesn't seem to improve so much to put compactify with simplify...
     ccnf = compactify(clauses, False, True, False)
     #t1 = time()
     #print('Compactified!')
@@ -221,7 +255,8 @@ def test_inf_with_difficult_instances():
     print('SAT' if res else 'UNSAT')
     print(f'Tiempo: {t1 - t0 : .4f} s')
     """
-    
+
+    """
     print('\n##################################\n\tTesting INF-Solver\n##################################')
     print("### Instance 1:", instance1)
     nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance1)
@@ -230,7 +265,10 @@ def test_inf_with_difficult_instances():
     t1 = time()
     print('SAT' if res else 'UNSAT')
     print(f'Tiempo: {t1 - t0 : .4f} s')
+    """
 
+    #set_trace()
+    
     print("### Instance 2:", instance2)
     nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance2)
     t0 = time()
@@ -274,6 +312,6 @@ def test_eliminate_first_with_problematic_instances():
 
 if __name__ == '__main__':
     #test_renaming()
-    test_inf_solver()
-    #test_inf_with_difficult_instances()
+    #test_inf_solver()
+    test_inf_with_difficult_instances()
     #test_eliminate_first_with_problematic_instances()
