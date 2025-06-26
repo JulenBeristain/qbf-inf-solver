@@ -42,7 +42,7 @@ def _rename_variables(quantifiers: List[QBlock], clauses: CNF_Formula) -> None:
                 clauses[i][j] = -old2new[-lit]
 
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = False) -> bool:
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True) -> bool:
     """
     TODO: eliminate_first = True dos UNSAT (t1.q y t2.q) no funcionan. Donde está el error? 
         En conjunction, disyunction? 
@@ -52,13 +52,18 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     if ccnf == False: return False
     
     assert len(quantifiers) > 0, "NOS HEMOS QUEDADO SIN CUANTIFICADORES PERO LA FÓRMULA NO SE HA SIMPLIFICADO A TRUE O FALSE!!!"
+    
+    # Nos quitamos la variable, pero hay que encontrarlo primero
+    # While necesario en caso de que con las optimizaciones el árbol de ccnf haya pérdido no solo la variable del root
+    #set_trace()
+    while ccnf[0] != quantifiers[-1][1].pop():
+        if not quantifiers[-1][1]:
+            quantifiers.pop()
+    
     q = quantifiers[-1][0]
     assert q == 'a' or q == 'e', "CUANTIFICADOR DESCONOCIDO DETECTADO"
-
-    # Nos quitamos la variable
-    last_block_variables = quantifiers[-1][1]
-    last_block_variables.pop()
-    if not last_block_variables:
+    
+    if not quantifiers[-1][1]:
         quantifiers.pop()
 
     # Imprimimos la información antes de simplificar la fórmula
@@ -105,7 +110,7 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     # Llamada recursiva para seguir eliminando variables
     return _eliminate_variables(quantifiers, psi)
 
-def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
+def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True) -> bool:
     """
     Function that receives the result of the parser and applies our QBF solver
     that takes advantage of the Inductive Normal Form.
@@ -126,7 +131,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
     #print("Eliminating variables...")
     #gc.set_debug(gc.DEBUG_STATS | gc.DEBUG_COLLECTABLE | gc.DEBUG_UNCOLLECTABLE)
     #gc.set_debug(0)
-    res = _eliminate_variables(quantifiers, ccnf)
+    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first)
     #print("Eliminated!")
 
     return res
@@ -234,7 +239,41 @@ def test_inf_with_difficult_instances():
     print('SAT' if res else 'UNSAT')
     print(f'Tiempo: {t1 - t0 : .4f} s')
 
+def test_eliminate_first_with_problematic_instances():
+    directory_sat = TEST_DIR + "unsat"
+    instance1 = directory_sat + "/t1.q"
+    instance2 = directory_sat + "/t2.q"
+
+    print('\n##################################\n\tTesting INF-Solver with Eliminate_First OFF\n##################################')
+    print("### Instance 1:", instance1)
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance1)
+    set_trace()
+    res = inf_solver(quantifiers, clauses)
+    print('SAT' if res else 'UNSAT')
+
+    print("### Instance 2:", instance2)
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance2)
+    set_trace()
+    res = inf_solver(quantifiers, clauses)
+    print('SAT' if res else 'UNSAT')
+
+    print('\n##################################\n\tTesting INF-Solver with Eliminate_First ON\n##################################')
+    print("### Instance 1:", instance1)
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance1)
+    set_trace()
+    res = inf_solver(quantifiers, clauses, eliminate_first=True)
+    print('SAT' if res else 'UNSAT')
+
+    print("### Instance 2:", instance2)
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance2)
+    set_trace()
+    res = inf_solver(quantifiers, clauses, eliminate_first=True)
+    print('SAT' if res else 'UNSAT')
+
+
+
 if __name__ == '__main__':
     #test_renaming()
     test_inf_solver()
     #test_inf_with_difficult_instances()
+    #test_eliminate_first_with_problematic_instances()
