@@ -12,6 +12,7 @@ from qbf_naive_solver import naive_solver_v1
 from time import time
 import gc
 import objgraph
+from pysat.solvers import Solver
 
 ##############################################################################################
 ### SOLVER USING INDUCTIVE NORMAL FORM
@@ -157,6 +158,11 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     # Por supuesto, el garbage collector con el counter de las referencias sigue trabajando
     gc.disable()
 
+    # Si estamos tratando con una instancia de SAT, mejor llamar directamente a un SAT solver optimizado de PySAT
+    if len(quantifiers) == 1 and quantifiers[0][0] == 'e':
+        with Solver(bootstrap_with=clauses) as s:
+            return s.solve()
+
     #print('Renaming variables...')
     _rename_variables(quantifiers, clauses)
     #print("Finished renaming!")
@@ -210,7 +216,7 @@ def test_inf_solver():
 
     print('\n##################################\n\tTesting INF-Solver\n##################################')
     print('\nProcessing SAT ...')
-    exclude = ['b.q'] # Killed
+    exclude = [] # b.q Killed --> No al usar el SAT solver
     for filename_sat in os.listdir(directory_sat):
         if filename_sat in exclude:
             continue
@@ -225,7 +231,7 @@ def test_inf_solver():
         print('SAT' if res else 'UNSAT')
         print(f"Time: {t1 - t0 : .4f}")
     """
-    Con b.q sale 'Killed' en pantalla -> Falta de memoria y el SO mata el proceso
+    Con b.q sale 'Killed' en pantalla -> Falta de memoria y el SO mata el proceso -> No con el SAT solver
     Con los demás va bien
     """
 
