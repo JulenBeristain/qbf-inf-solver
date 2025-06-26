@@ -46,12 +46,12 @@ DB_Total_nodes = None
 DB_Nodes = None
 DB_Size = None
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True) -> bool:
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
-    if ccnf == True: return True
-    if ccnf == False: return False
+    if ccnf is True or ccnf is False:
+        return ccnf
     
     assert len(quantifiers) > 0, "NOS HEMOS QUEDADO SIN CUANTIFICADORES PERO LA FÓRMULA NO SE HA SIMPLIFICADO A TRUE O FALSE!!!"
     
@@ -78,16 +78,17 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     total_nodes = CCNF.num_nodes_created()
     size = CCNF.size(ccnf)
 
-    print("-" * 50)
-    print(f"Max_v = {max_v}")
-    print(f"Depth = {depth}")
-    #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
-    print(f"Actual_nodes               = {nodes}")
-    print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
-    print(f"Total_created_nodes = {total_nodes}")
-    print(f"Size = {size}")
-    #objgraph.show_most_common_types()
-    print(" " * 50, flush=True)
+    if debugging:
+        print("-" * 50)
+        print(f"Max_v = {max_v}")
+        print(f"Depth = {depth}")
+        #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
+        print(f"Actual_nodes               = {nodes}")
+        print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
+        print(f"Total_created_nodes = {total_nodes}")
+        print(f"Size = {size}")
+        #objgraph.show_most_common_types()
+        print(" " * 50, flush=True)
 
     global DB_Max_v
     global DB_Total_nodes
@@ -95,7 +96,7 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     global DB_Size
 
     assert DB_Max_v is None or max_v < DB_Max_v, "No se ha eliminado una variable!!!"
-    if DB_Max_v is not None and DB_Max_v - max_v != 1:
+    if debugging and (DB_Max_v is not None and DB_Max_v - max_v != 1):
         print("Several variables have been removed at once!")
     DB_Max_v = max_v
 
@@ -110,37 +111,39 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
         (nodes_no_repetition >= DB_Nodes and size >= DB_Size) or \
         (nodes_no_repetition < DB_Nodes and size < DB_Size)
     #assert cond, "El cambio en la cantidad de nodos no coincide con el cambio en el tamaño del árbol CCNF"
-    if not cond:
+    if debugging and (not cond):
         print(f"Ligera fluctuación en size: Nodos[{DB_Nodes} -> {nodes_no_repetition}] vs Size[{DB_Size} -> {size}]")
     DB_Nodes = nodes_no_repetition
     DB_Size = size
-    print(" " * 50, flush=True)
+    if debugging:
+        print(" " * 50, flush=True)
     #"""
 
     # Simplificamos la fórmula
     if q == 'a':
         # INF formula (C-CNF + universal quantifier)
-        print("Eliminating universal...")
-        print("Primera conjunción...")
+        if debugging:
+            print("Eliminating universal...")
+            print("Primera conjunción...")
         psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True)
-        print("Segunda conjunción...")
+        if debugging: print("Segunda conjunción...")
         psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
-        print("Eliminating existential...")
+        if debugging: print("Eliminating existential...")
         if eliminate_first:
-            print("Disyunción...")
+            if debugging: print("Disyunción...")
             psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True)
-            print("Conjunción...")
+            if debugging: print("Conjunción...")
             psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
         else:
-        #    print("Primera conjunción...")
+            if debugging: print("Primera conjunción...")
             psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True)
-        #    print("Segunda conjunción...")
+            if debugging: print("Segunda conjunción...")
             psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True)
-        #    print("Disyunción...")
+            if debugging: print("Disyunción...")
             psi = CCNF.disjunction(psi1, psi2, simplify=True)
-    #print("Eliminated!")
+    if debugging: print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
     return _eliminate_variables(quantifiers, psi)
@@ -167,6 +170,13 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #gc.set_debug(0)
     res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first)
     #print("Eliminated!")
+
+    global DB_Max_v
+    global DB_Total_nodes
+    global DB_Nodes
+    global DB_Size
+
+    DB_Max_v = DB_Total_nodes = DB_Nodes = DB_Size = None
 
     return res
 
@@ -196,7 +206,7 @@ def test_inf_solver():
 
     print('\n##################################\n\tTesting INF-Solver\n##################################')
     print('\nProcessing SAT ...')
-    exclude = ['r_100_80_11.qdimacs', 'b.q'] # Tarda bastante
+    exclude = ['b.q'] # Killed
     for filename_sat in os.listdir(directory_sat):
         if filename_sat in exclude:
             continue
@@ -211,8 +221,6 @@ def test_inf_solver():
         print('SAT' if res else 'UNSAT')
         print(f"Time: {t1 - t0 : .4f}")
     """
-    Con stmt24_7_8.qdimacs funciona, pero tarda un tiempo no despreciable (1 min aprox)
-    Con r_100_80_11.qdimacs sale 'Killed' en pantalla -> Falta de memoria y el SO mata el proceso
     Con b.q sale 'Killed' en pantalla -> Falta de memoria y el SO mata el proceso
     Con los demás va bien
     """
@@ -312,6 +320,6 @@ def test_eliminate_first_with_problematic_instances():
 
 if __name__ == '__main__':
     #test_renaming()
-    #test_inf_solver()
-    test_inf_with_difficult_instances()
+    test_inf_solver()
+    #test_inf_with_difficult_instances()
     #test_eliminate_first_with_problematic_instances()

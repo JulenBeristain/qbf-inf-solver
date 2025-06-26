@@ -38,17 +38,17 @@ class CCNF:
         """
         CCNF._created += 1
 
-        assert not absTree == False, \
+        assert absTree is not False, \
         f"Variable [{v}]: se incumple ψ3 /= false !!!"
-        assert (not negTree == False) or (not posTree == False), \
+        assert (negTree is not False) or (posTree is not False), \
             f"Variable [{v}]: se incumple ψ1 /= false or ψ2 /= false !!!"
-        assert (not absTree == True) or (not posTree == True) or (not negTree == True), \
+        assert (absTree is not True) or (posTree is not True) or (negTree is not True), \
             f"Variable [{v}]: se incumple ψ1 /= true or ψ2 /= true or ψ3 /= true !!!"
 
         return (v, negTree, posTree, absTree)
 
     def pretty_print(tree: Tuple | bool, prefix="", child_label="Root"):
-        if tree == True or tree == False:
+        if tree is True or tree is False:
             print(f"{prefix}[{child_label}] - {tree}")
             return
         
@@ -79,24 +79,24 @@ class CCNF:
         """
         ## Base cases
         # Identity (true is the neutral element of conjunction)
-        if tree1 == True: return tree2
-        if tree2 == True: return tree1
+        if tree1 is True: return tree2
+        if tree2 is True: return tree1
 
         # Domination (false is the dominant element of conjunction)
-        if tree1 == False: return False
-        if tree2 == False: return False
+        if tree1 is False or tree2 is False: 
+            return False
 
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
             conj_abs = CCNF.conjunction(tree1[3], tree2[3], simplify=simplify)
-            if conj_abs == False:
+            if conj_abs is False:
                 return False
             conj_neg = CCNF.conjunction(tree1[1], tree2[1], simplify=simplify)
             conj_pos = CCNF.conjunction(tree1[2], tree2[2], simplify=simplify)
-            if conj_neg == False and conj_pos == False:
+            if conj_neg is False and conj_pos is False:
                 return False
-            if conj_neg == True and conj_pos == True:
+            if conj_neg is True and conj_pos is True:
                 return conj_abs # Ya sea True o Tuple
             
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
@@ -112,7 +112,7 @@ class CCNF:
             tree1, tree2 = tree2, tree1
 
         conj_abs = CCNF.conjunction(tree1[3], tree2, simplify=simplify)
-        if conj_abs == False:
+        if conj_abs is False:
             return False
 
         if use_direct_association:
@@ -124,9 +124,9 @@ class CCNF:
         else:
             conj_neg = CCNF.conjunction(tree1[1], tree2, simplify=simplify)
             conj_pos = CCNF.conjunction(tree1[2], tree2, simplify=simplify)
-            if conj_neg == False and conj_pos == False:
+            if conj_neg is False and conj_pos is False:
                 return False
-            if conj_neg == True and conj_pos == True:
+            if conj_neg is True and conj_pos is True:
                 return conj_abs # Ya sea True o Tuple
             
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
@@ -142,18 +142,18 @@ class CCNF:
         """
         ## Base cases
         # Identity (false is the neutral element of disjunction)
-        if tree1 == False: return tree2
-        if tree2 == False: return tree1
+        if tree1 is False: return tree2
+        if tree2 is False: return tree1
 
         # Domination (true is the dominant element of disjunction)
-        if tree1 == True: return True
-        if tree2 == True: return True
+        if tree1 is True or tree2 is True:
+            return True
 
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
             phi_3_ = CCNF.disjunction(tree1[3], tree2[3], simplify=simplify)
-            if phi_3_ == False:
+            if phi_3_ is False:
                 return False
             
             phi_11_ = CCNF.conjunction(tree2[1], tree2[3])
@@ -166,9 +166,9 @@ class CCNF:
 
             phi_14_ = CCNF.conjunction(phi_12_, phi_13_)
             phi_24_ = CCNF.conjunction(phi_22_, phi_23_)
-            if phi_14_ == False and phi_24_ == False:
+            if phi_14_ is False and phi_24_ is False:
                 return False
-            if phi_14_ == True and phi_24_ == True:
+            if phi_14_ is True and phi_24_ is True:
                 return phi_3_ # Ya sea True o Tuple
             
             phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_)
@@ -182,13 +182,13 @@ class CCNF:
             tree1, tree2 = tree2, tree1
         
         disj_abs = CCNF.disjunction(tree1[3], tree2, simplify)
-        if disj_abs == False:
+        if disj_abs is False:
             return False
         disj_neg = CCNF.disjunction(tree1[1], tree2, simplify)
         disj_pos = CCNF.disjunction(tree1[2], tree2, simplify)
-        if disj_neg == False and disj_pos == False:
+        if disj_neg is False and disj_pos is False:
             return False
-        if disj_neg == True and disj_pos == True:
+        if disj_neg is True and disj_pos is True:
             return disj_abs # Ya sea True o Tuple
         
         phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs)
@@ -203,7 +203,7 @@ class CCNF:
         """
         #set_trace()
         # Necessary check if in the next case it is true and conjunction returns a boolean
-        if tree == True or tree == False:
+        if tree is True or tree is False:
             return tree
 
         if CCNF.equals(tree[1], tree[2]):
@@ -211,12 +211,12 @@ class CCNF:
             return CCNF.simplify_ccnf(phi)
         
         # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
-        if tree[1] != True and CCNF.equals(tree[1], tree[3]):
+        if tree[1] is not True and CCNF.equals(tree[1], tree[3]):
             phi = CCNF.create_node(tree[0], True, tree[2], tree[3])
             return CCNF.simplify_ccnf(phi)
 
         # First condition to avoid infinite reqursion when phi_2 = phi_3 = True
-        if tree[2] != True and CCNF.equals(tree[2], tree[3]):
+        if tree[2] is not True and CCNF.equals(tree[2], tree[3]):
             phi = CCNF.create_node(tree[0], tree[1], True, tree[3])
             return CCNF.simplify_ccnf(phi)
         
@@ -226,12 +226,12 @@ class CCNF:
     # MEMORY TROUBLE-SHOOTING
     ###
     def depth(tree: Tuple | bool) -> int:
-        if tree == False or tree == True:
+        if tree is False or tree is True:
             return 1
         return 1 + max(CCNF.depth(tree[1]), CCNF.depth(tree[2]), CCNF.depth(tree[3]))
 
     def max_nodes(tree: Tuple | bool) -> int:
-        if tree == False or tree == True:
+        if tree is False or tree is True:
             return 0
         
         max_v = tree[0]
@@ -248,7 +248,7 @@ class CCNF:
         return nodes
 
     def nodes(tree: Tuple | bool) -> int:
-        if tree == False or tree == True:
+        if tree is False or tree is True:
             return 0
         return 1 + CCNF.nodes(tree[1]) + CCNF.nodes(tree[2]) + CCNF.nodes(tree[3])
 
@@ -274,10 +274,10 @@ class CCNF:
         return get_total_size(tree)
             
     def contains_true(tree):
-        if tree == True:
+        if tree is True:
             return True
         
-        if tree == False:
+        if tree is False:
             return False
         
         if CCNF.contains_true(tree[1]):
@@ -292,10 +292,10 @@ class CCNF:
         return False
 
     def contains_false(tree):
-        if tree == False:
+        if tree is False:
             return True
         
-        if tree == True:
+        if tree is True:
             return False
         
         if CCNF.contains_false(tree[1]):
@@ -501,13 +501,13 @@ def _compactify(clauses: CNF_Formula, simplify = False) -> Tuple | bool:
         i += 1
 
     absTree = _compactify(phi3, simplify=simplify)
-    if absTree == False:
+    if absTree is False:
         return False
     negTree = _compactify(phi1, simplify=simplify)
     posTree = _compactify(phi2, simplify=simplify)
-    if negTree == False and posTree == False:
+    if negTree is False and posTree is False:
         return False
-    if negTree == True and posTree == True:
+    if negTree is True and posTree is True:
         return absTree # Ya sea True o Tuple
     
     phi = CCNF.create_node(vn, negTree, posTree, absTree)
@@ -526,9 +526,9 @@ def test_compactify():
     clauses_false = [[]]
 
     tree_true = compactify(deepcopy(clauses_true))
-    assert tree_true == True, "No hemos conseguido el árbol true a partir de lista vacía!!!"
+    assert tree_true is True, "No hemos conseguido el árbol true a partir de lista vacía!!!"
     tree_false = compactify(deepcopy(clauses_false))
-    assert tree_false == False, "No hemos conseguido el árbol false a partir de cláusula vacía!!!"
+    assert tree_false is False, "No hemos conseguido el árbol false a partir de cláusula vacía!!!"
 
     clauses1 = [[1]]
     tree = compactify(clauses1)
