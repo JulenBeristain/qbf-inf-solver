@@ -47,7 +47,13 @@ DB_Total_nodes = None
 DB_Nodes = None
 DB_Size = None
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, 
+                       eliminate_first = True, debugging = False, iterative = True) -> bool:
+    if iterative:
+        return _eliminate_variables_it(quantifiers, ccnf, eliminate_first, debugging)
+    return _eliminate_variables_rec(quantifiers, ccnf, eliminate_first, debugging) 
+
+def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
@@ -147,7 +153,104 @@ def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminat
     if debugging: print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
-    return _eliminate_variables(quantifiers, psi)
+    return _eliminate_variables_rec(quantifiers, psi)
+
+def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
+    """
+    TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
+    """
+    while True:
+        if ccnf is True or ccnf is False:
+            return ccnf
+        
+        # Nos quitamos la variable, pero hay que encontrarlo primero
+        # While necesario en caso de que con las optimizaciones el árbol de ccnf haya pérdido no solo la variable del root
+        while ccnf[0] != quantifiers[-1][1].pop():
+            if not quantifiers[-1][1]:
+                quantifiers.pop()
+        
+        q = quantifiers[-1][0]
+        assert q == 'a' or q == 'e', "CUANTIFICADOR DESCONOCIDO DETECTADO"
+        
+        if not quantifiers[-1][1]:
+            quantifiers.pop()
+
+        # Imprimimos la información antes de simplificar la fórmula
+        #set_trace()
+        #"""
+        max_v = ccnf[0]
+        depth = CCNF.depth(ccnf)
+        nodes = CCNF.nodes(ccnf)
+        nodes_no_repetition = CCNF.nodes_no_repetition(ccnf)
+        total_nodes = CCNF.num_nodes_created()
+        size = CCNF.size(ccnf)
+
+        if debugging:
+            print("-" * 50)
+            print(f"Max_v = {max_v}")
+            print(f"Depth = {depth}")
+            #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
+            print(f"Actual_nodes               = {nodes}")
+            print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
+            print(f"Total_created_nodes = {total_nodes}")
+            print(f"Size = {size}")
+            #objgraph.show_most_common_types()
+            print(" " * 50, flush=True)
+
+        global DB_Max_v
+        global DB_Total_nodes
+        global DB_Nodes
+        global DB_Size
+
+        assert DB_Max_v is None or max_v < DB_Max_v, "No se ha eliminado una variable!!!"
+        if debugging and (DB_Max_v is not None and DB_Max_v - max_v != 1):
+            print("Several variables have been removed at once!")
+        DB_Max_v = max_v
+
+        assert depth <= max_v + 1, "La profundidad supera el límite de la variable máxima!!!"
+        
+        assert nodes_no_repetition <= total_nodes, "Cómo tiene más nodos de los que se han creado?!"
+        assert DB_Total_nodes is None or total_nodes >= DB_Total_nodes, "Cómo se han creado menos nodos que los que habían antes???"
+        DB_Total_nodes = total_nodes
+
+        # Too strong assert, little variations might happen
+        cond = (DB_Nodes is None and DB_Size is None) or \
+            (nodes_no_repetition >= DB_Nodes and size >= DB_Size) or \
+            (nodes_no_repetition < DB_Nodes and size < DB_Size)
+        #assert cond, "El cambio en la cantidad de nodos no coincide con el cambio en el tamaño del árbol CCNF"
+        if debugging and (not cond):
+            print(f"Ligera fluctuación en size: Nodos[{DB_Nodes} -> {nodes_no_repetition}] vs Size[{DB_Size} -> {size}]")
+        DB_Nodes = nodes_no_repetition
+        DB_Size = size
+        if debugging:
+            print(" " * 50, flush=True)
+        #"""
+
+        # Simplificamos la fórmula
+        if q == 'a':
+            # INF formula (C-CNF + universal quantifier)
+            if debugging:
+                print("Eliminating universal...")
+                print("Primera conjunción...")
+            psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True)
+            if debugging: print("Segunda conjunción...")
+            ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True)
+        else:
+            # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
+            if debugging: print("Eliminating existential...")
+            if eliminate_first:
+                if debugging: print("Disyunción...")
+                psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True)
+                if debugging: print("Conjunción...")
+                ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True)
+            else:
+                if debugging: print("Primera conjunción...")
+                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True)
+                if debugging: print("Segunda conjunción...")
+                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True)
+                if debugging: print("Disyunción...")
+                ccnf = CCNF.disjunction(psi1, psi2, simplify=True)
+        if debugging: print("Eliminated!")
 
 def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True) -> bool:
     """

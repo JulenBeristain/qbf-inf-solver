@@ -63,7 +63,8 @@ class CCNF:
     def equals(tree1: Tuple | bool, tree2: Tuple | bool):
         """
         TODO: potential optimization using only "is" if we make sure that each kind of 
-                tree only exists once. A mirooptmization would to be delete this function 
+                tree only exists once.
+        TODO: A mirooptmization would to be delete this function 
                 altogether.
         """
         return tree1 == tree2
@@ -197,10 +198,12 @@ class CCNF:
         else:
             return phi
 
-    def simplify_ccnf(tree: Tuple | bool) -> Tuple | bool:
-        """
-        TODO: tal vez se puede plantear de manera iterativa
-        """
+    def simplify_ccnf(tree: Tuple | bool, iterative = True) -> Tuple | bool:
+        if iterative:
+            return CCNF.simplify_ccnf_it(tree)
+        return CCNF.simplify_ccnf_rec(tree)
+
+    def simplify_ccnf_rec(tree: Tuple | bool) -> Tuple | bool:
         #set_trace()
         # Necessary check if in the next case it is true and conjunction returns a boolean
         if tree is True or tree is False:
@@ -208,19 +211,41 @@ class CCNF:
 
         if CCNF.equals(tree[1], tree[2]):
             phi = CCNF.conjunction(tree[1], tree[3], simplify=False)
-            return CCNF.simplify_ccnf(phi)
+            return CCNF.simplify_ccnf_rec(phi)
         
         # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
         if tree[1] is not True and CCNF.equals(tree[1], tree[3]):
             phi = CCNF.create_node(tree[0], True, tree[2], tree[3])
-            return CCNF.simplify_ccnf(phi)
+            return CCNF.simplify_ccnf_rec(phi)
 
         # First condition to avoid infinite reqursion when phi_2 = phi_3 = True
         if tree[2] is not True and CCNF.equals(tree[2], tree[3]):
             phi = CCNF.create_node(tree[0], tree[1], True, tree[3])
-            return CCNF.simplify_ccnf(phi)
+            return CCNF.simplify_ccnf_rec(phi)
         
         return tree
+
+    def simplify_ccnf_it(tree: Tuple | bool) -> Tuple | bool:
+        while True:
+            # Necessary check if in the next case it is true and conjunction returns a boolean
+            if tree is True or tree is False:
+                return tree
+
+            if CCNF.equals(tree[1], tree[2]):
+                tree = CCNF.conjunction(tree[1], tree[3], simplify=False)
+                continue
+            
+            # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
+            if tree[1] is not True and CCNF.equals(tree[1], tree[3]):
+                tree = CCNF.create_node(tree[0], True, tree[2], tree[3])
+                continue
+
+            # First condition to avoid infinite reqursion when phi_2 = phi_3 = True
+            if tree[2] is not True and CCNF.equals(tree[2], tree[3]):
+                tree = CCNF.create_node(tree[0], tree[1], True, tree[3])
+                continue
+            
+            return tree
 
     ###
     # MEMORY TROUBLE-SHOOTING
@@ -345,8 +370,6 @@ def _cmp_clauses(clause1: Clause, clause2: Clause) -> int:
     
     Another advantage (the real one) of giving more precedence to prefixes is that empty clauses (prefix of any other clause)
     will appear in the beginning, so it will be easy to check if we have the False literal.
-
-    TODO: decidir qué versión de Tree va a ser el final
     """
     len1, len2 = len(clause1), len(clause2)
     min_len = min(len1, len2)
@@ -450,7 +473,6 @@ def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautolo
         _absorb_with_prefixes(clauses)
     # Note: the previous step is not strictly necessary. We would reach a point were the empty list would
     # be found as the base case in _compactify, and we would obtain a totally equivalent answer.
-    #   Could be interesting to test if using it is faster or slower (TODO testing)
 
     return _compactify(clauses, simplify=simplify)
     
