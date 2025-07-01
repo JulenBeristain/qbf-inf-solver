@@ -399,26 +399,30 @@ def _is_prefix(prefix: List[int], complete: List[int]) -> bool:
     return True
 
 
-def _absorb_with_prefixes(clauses: CNF_Formula) -> None:
+def _absorb_with_prefixes(clauses: CNF_Formula) -> int:
     """
     PRE: prefixes come before the complete one.
 
     Note: idempotence is a concrete case of absortion.
     """
+    num = 0
     i = len(clauses) - 1
     while i > 0:
         complete = clauses[i]
         prefix = clauses[i-1]
         if _is_prefix(prefix, complete):
             clauses.pop(i)
+            num += 1
         i -= 1
+    return num
 
-def _eliminate_tautological_variables(clauses: CNF_Formula) -> CNF_Formula:
+def _eliminate_tautological_variables(clauses: CNF_Formula) -> int:
     """
     PRE: clauses are ordered by the variables (absolute value of literals)
 
     If v (or -v) is found several times in a clause c, only one appearence is left.
     """
+    num = 0
     i = len(clauses) - 1
     while i >= 0:
         c = clauses[i]
@@ -426,16 +430,19 @@ def _eliminate_tautological_variables(clauses: CNF_Formula) -> CNF_Formula:
         while j > 0:
             if c[j-1] == c[j]:
                 c.pop(j)
+                num += 1
             j -= 1
         i -= 1
+    return num
 
 
-def _eliminate_tautological_clauses(clauses: CNF_Formula) -> CNF_Formula:
+def _eliminate_tautological_clauses(clauses: CNF_Formula) -> int:
     """
     PRE: clauses are ordered by the variables absolute values
 
     If v and -v are in the same clause c, c is removed from clauses.
     """
+    num = 0
     i = len(clauses) - 1
     while i >= 0:
         c = clauses[i]
@@ -444,11 +451,15 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> CNF_Formula:
         while j < num_literals - 1:
             if c[j] == -c[j+1]:
                 clauses.pop(i)
+                num += 1
                 break
             j += 1
         i -= 1
+    return num
 
-def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautologies = True, simplify = False) -> Tuple | bool:
+def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, 
+               simplify_tautologies = True, simplify = False,
+               check_absorb_with_prefixes = False) -> Tuple | bool:
     """
     The idea is to have a ternary tree with a level for each variable in the CNF.
     """
@@ -457,10 +468,15 @@ def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautolo
     for c in clauses:
         c.sort(key=abs, reverse=True)
 
-    if check_tautologies:
+    if simplify_tautologies:
         # set_trace()
         _eliminate_tautological_clauses(clauses)
         _eliminate_tautological_variables(clauses)
+    else:
+        num = _eliminate_tautological_clauses(clauses)
+        assert num == 0, "Todavía hay cláusulas con v y -v !!!"
+        num = _eliminate_tautological_variables(clauses)
+        assert num == 0, "Todavía hay cláusulas con varios v !!!"
 
     # Second, we order the clauses considering also that -v < v (for different variables we still use the absolute values)
     # Detail: lists of lists are ordered in lexicographical order (element by element until distinct ones are found, or by 
@@ -471,6 +487,9 @@ def compactify(clauses: CNF_Formula, absorb_with_prefixes = False, check_tautolo
     # previous sorting) as prefix(es)
     if absorb_with_prefixes:
         _absorb_with_prefixes(clauses)
+    if check_absorb_with_prefixes:
+        num = _absorb_with_prefixes(clauses)
+        assert num == 0, "No se han aplicado todas las subsumpciones (absorbciones) posibles !!!"
     # Note: the previous step is not strictly necessary. We would reach a point were the empty list would
     # be found as the base case in _compactify, and we would obtain a totally equivalent answer.
 

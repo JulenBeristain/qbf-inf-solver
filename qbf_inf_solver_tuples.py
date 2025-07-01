@@ -13,6 +13,7 @@ from time import time
 import gc
 import objgraph
 from pysat.solvers import Solver
+from pysat.process import Processor
 
 ##############################################################################################
 ### SOLVER USING INDUCTIVE NORMAL FORM
@@ -273,7 +274,9 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print('Compactifying formula...')
     #t0 = time()
     # But it doesn't seem to improve so much to put compactify with simplify...
-    ccnf = compactify(clauses, False, True, False)
+    ccnf = compactify(clauses, absorb_with_prefixes=False, 
+                      simplify_tautologies=True, simplify=False, 
+                      check_absorb_with_prefixes=False)
     #t1 = time()
     #print('Compactified!')
     #print(f"Time: {t1 - t0 : .4f} s")
@@ -399,9 +402,9 @@ def test_inf_with_difficult_instances():
     print(f'Tiempo: {t1 - t0 : .4f} s')
 
 def test_eliminate_first_with_problematic_instances():
-    directory_sat = TEST_DIR + "unsat"
-    instance1 = directory_sat + "/t1.q"
-    instance2 = directory_sat + "/t2.q"
+    directory_unsat = TEST_DIR + "unsat"
+    instance1 = directory_unsat + "/t1.q"
+    instance2 = directory_unsat + "/t2.q"
 
     print('\n##################################\n\tTesting INF-Solver with Eliminate_First OFF\n##################################')
     print("### Instance 1:", instance1)
@@ -429,10 +432,37 @@ def test_eliminate_first_with_problematic_instances():
     res = inf_solver(quantifiers, clauses, eliminate_first=True)
     print('SAT' if res else 'UNSAT')
 
+def test_preprocessor():
+    """
+    CONCLUSIÓN: no usamos ningún preprocesador.
 
+    PySAT: está implementado para SAT. Hace operaciones con dicha presuposición, por lo que es incompatible con
+        los unificadores universales de QBF.
+    MAC: mismo razonamiento que con el anterior.
+    Bica: es posible que sea utilizable. No obstante, es más complicado, requiere que la entrada esté
+        en un fichero, el resultado también lo pone en un fichero, y sobre todo, con la configuración
+        por defecto realiza la negación de la fórmula, que puede ser en sí mismo una operación muy costosa.
+    """
+    
+    directory_unsat = TEST_DIR + "unsat"
+    instance = directory_unsat + "/r_141"
+
+    print('\n##################################\n\tTesting INF-Solver with Preprocessor\n##################################')
+    print("### Instance:", instance)
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance)
+    res = inf_solver(quantifiers, clauses, eliminate_first=True)
+    print('SAT' if res else 'UNSAT')
+
+    print("### Instance: the same but with all existential variables and no preprocessor")
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance)
+    quantifiers = [('e', vars) for (q, vars) in quantifiers]
+    res = inf_solver(quantifiers, clauses, eliminate_first=True, preprocess=False)
+    print('SAT' if res else 'UNSAT')
 
 if __name__ == '__main__':
     #test_renaming()
     test_inf_solver()
     #test_inf_with_difficult_instances()
     #test_eliminate_first_with_problematic_instances()
+    #test_preprocessor()
+    pass
