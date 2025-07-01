@@ -48,13 +48,13 @@ DB_Total_nodes = None
 DB_Nodes = None
 DB_Size = None
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, 
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool,
                        eliminate_first = True, debugging = False, iterative = True) -> bool:
     if iterative:
-        return _eliminate_variables_it(quantifiers, ccnf, eliminate_first, debugging)
-    return _eliminate_variables_rec(quantifiers, ccnf, eliminate_first, debugging) 
+        return _eliminate_variables_it(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
+    return _eliminate_variables_rec(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
 
-def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
@@ -133,30 +133,30 @@ def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, elim
         if debugging:
             print("Eliminating universal...")
             print("Primera conjunción...")
-        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True)
+        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True, cached=cached)
         if debugging: print("Segunda conjunción...")
-        psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
+        psi = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
         if debugging: print("Eliminating existential...")
         if eliminate_first:
             if debugging: print("Disyunción...")
-            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True)
+            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
             if debugging: print("Conjunción...")
-            psi = CCNF.conjunction(psi, ccnf[3], simplify=True)
+            psi = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
         else:
             if debugging: print("Primera conjunción...")
-            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True)
+            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True, cached=cached)
             if debugging: print("Segunda conjunción...")
-            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True)
+            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True, cached=cached)
             if debugging: print("Disyunción...")
-            psi = CCNF.disjunction(psi1, psi2, simplify=True)
+            psi = CCNF.disjunction(psi1, psi2, simplify=True, cached=cached)
     if debugging: print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
     return _eliminate_variables_rec(quantifiers, psi)
 
-def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
@@ -233,27 +233,27 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, elimi
             if debugging:
                 print("Eliminating universal...")
                 print("Primera conjunción...")
-            psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True)
+            psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True, cached=cached)
             if debugging: print("Segunda conjunción...")
-            ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True)
+            ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
         else:
             # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
             if debugging: print("Eliminating existential...")
             if eliminate_first:
                 if debugging: print("Disyunción...")
-                psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True)
+                psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
                 if debugging: print("Conjunción...")
-                ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True)
+                ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
             else:
                 if debugging: print("Primera conjunción...")
-                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True)
+                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True, cached=cached)
                 if debugging: print("Segunda conjunción...")
-                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True)
+                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True, cached=cached)
                 if debugging: print("Disyunción...")
-                ccnf = CCNF.disjunction(psi1, psi2, simplify=True)
+                ccnf = CCNF.disjunction(psi1, psi2, simplify=True, cached=cached)
         if debugging: print("Eliminated!")
 
-def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True) -> bool:
+def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True, check_sat = True) -> bool:
     """
     Function that receives the result of the parser and applies our QBF solver
     that takes advantage of the Inductive Normal Form.
@@ -263,7 +263,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     gc.disable()
 
     # Si estamos tratando con una instancia de SAT, mejor llamar directamente a un SAT solver optimizado de PySAT
-    if len(quantifiers) == 1 and quantifiers[0][0] == 'e':
+    if check_sat and len(quantifiers) == 1 and quantifiers[0][0] == 'e':
         with Solver(bootstrap_with=clauses) as s:
             return s.solve()
 
@@ -274,7 +274,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print('Compactifying formula...')
     #t0 = time()
     # But it doesn't seem to improve so much to put compactify with simplify...
-    ccnf = compactify(clauses, absorb_with_prefixes=False, 
+    ccnf = compactify(clauses, cached=False, absorb_with_prefixes=False, 
                       simplify_tautologies=True, simplify=False, 
                       check_absorb_with_prefixes=False)
     #t1 = time()
@@ -284,7 +284,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print("Eliminating variables...")
     #gc.set_debug(gc.DEBUG_STATS | gc.DEBUG_COLLECTABLE | gc.DEBUG_UNCOLLECTABLE)
     #gc.set_debug(0)
-    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first)
+    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first, cached=False)
     #print("Eliminated!")
 
     global DB_Max_v
@@ -396,7 +396,7 @@ def test_inf_with_difficult_instances():
     print("### Instance 2:", instance2)
     nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance2)
     t0 = time()
-    res = inf_solver(quantifiers, clauses)
+    res = inf_solver(quantifiers, clauses, check_sat=False)
     t1 = time()
     print('SAT' if res else 'UNSAT')
     print(f'Tiempo: {t1 - t0 : .4f} s')
