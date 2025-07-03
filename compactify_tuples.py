@@ -9,6 +9,8 @@ from qbf_parser import read_qdimacs_from_file_unchecked
 #from memory import get_total_size
 from sys import getsizeof
 from functools import lru_cache
+from multiprocessing import Pool
+from os import cpu_count
 
 ##############################################################################################
 ### COMPACTIFY ###############################################################################
@@ -32,6 +34,10 @@ class CCNF:
     def restart_node_counter():
         CCNF._created = 0
     ###################################
+    # TODO: otra alternativa posible sería cambiar la estructura de los nodos para no tener tuplas anidadas, sino identificar
+    #   cada tupla con un UINT y tener tuplas (v, ID_neg, ID_pos, ID_abs) --> puede ayudar a la no repetición de nodos haciendo
+    #   más eficiente los hashes, posibilitando igualmente el equals con is, etc. Puede que sea necesario incluir el id en la 
+    #   propia tupla? O tal vez con uno o un par de dicts id->tupla y/o tupla->id sea suficiente.
 
     def create_node(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool, cached = False) -> Tuple:
         if cached:
@@ -57,7 +63,6 @@ class CCNF:
     @lru_cache(maxsize=None)
     def create_node_cached(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool) -> Tuple:
         """
-        TODO: microoptimización dejar de usar esta función y llamar directamente al constructor de tuplas
         """
         CCNF._created += 1
 
@@ -85,10 +90,7 @@ class CCNF:
 
     def equals(tree1: Tuple | bool, tree2: Tuple | bool, cached = False):
         """
-        TODO: potential optimization using only "is" if we make sure that each kind of 
-                tree only exists once.
-        TODO: A mirooptmization would to be delete this function 
-                altogether.
+        TODO: A mirooptmization would to be delete this function altogether.
         """
         if cached:
             return tree1 is tree2
@@ -97,7 +99,106 @@ class CCNF:
     #######################
     # BOOLEAN OPERATIONS
     #######################
+    # TODO - Nota: lru_cache(maxsize=None) no parece mejorar el rendimiento de conjunction y disjunction
+
     def conjunction(tree1: Tuple | bool, tree2: Tuple | bool, 
+                    cached: bool,
+                    use_direct_association = True,
+                    simplify = False,
+                    parallel = False) -> Tuple | bool:
+        if parallel and 3 < cpu_count():
+            return CCNF.conjunction_parallel(tree1, tree2, use_direct_association=use_direct_association, simplify=simplify)
+        else:
+            return CCNF.conjunction_serial(tree1, tree2, cached=cached, use_direct_association=use_direct_association, simplify=simplify)
+
+    def conjunction_parallel(tree1: Tuple | bool, tree2: Tuple | bool,
+                    use_direct_association = True,
+                    simplify = False) -> Tuple | bool:
+        ## Base cases
+        # Identity (true is the neutral element of conjunction)
+        if tree1 is True: return tree2
+        if tree2 is True: return tree1
+
+        # Domination (false is the dominant element of conjunction)
+        if tree1 is False or tree2 is False: 
+            return False
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            pool = Pool(processes=3)
+            async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2[3], ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2[1], ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2[2], ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            pool.close()
+            
+            # TODO: main problem with the parallel approach: we lost lazyness with the checks for False/True
+            #       As it is now, the serial version is much more efficient
+
+            pool.join()
+            conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+            if conj_abs is False:
+                return False
+            if conj_neg is False and conj_pos is False:
+                return False
+            if conj_neg is True and conj_pos is True:
+                return conj_abs # True o tuple
+
+            #phi = CCNF.create_node(tree1[0], async_neg.get(), async_pos.get(), async_abs.get(), cached=False)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
+            if simplify:
+                return CCNF.simplify_ccnf(phi, cached=False)
+            else:
+                return phi
+
+
+        # Different maximum variables
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        if use_direct_association:
+            conj_abs = CCNF.conjunction_parallel(tree1[3], tree2, simplify=simplify, 
+                                               use_direct_association=use_direct_association)
+            if conj_abs is False:
+                return False
+            
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, cached=False)
+            if simplify:
+                return CCNF.simplify_ccnf(phi, cached=False)
+            else:
+                return phi
+        
+        else:
+            pool = Pool(processes=3)
+            async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2, ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2, ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2, ), {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, })
+            pool.close()
+
+            pool.join()
+            conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+            if conj_abs is False:
+                return False
+            if conj_neg is False and conj_pos is False:
+                return False
+            if conj_neg is True and conj_pos is True:
+                return conj_abs # True o tuple
+
+            #phi = CCNF.create_node(tree1[0], async_neg.get(), async_pos.get(), async_abs.get(), cached=False)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
+            if simplify:
+                return CCNF.simplify_ccnf(phi, cached=False)
+            else:
+                return phi
+
+    def conjunction_serial(tree1: Tuple | bool, tree2: Tuple | bool, 
                     cached: bool,
                     use_direct_association = True,
                     simplify = False) -> Tuple | bool:
@@ -116,11 +217,11 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            conj_abs = CCNF.conjunction(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            conj_abs = CCNF.conjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
             if conj_abs is False:
                 return False
-            conj_neg = CCNF.conjunction(tree1[1], tree2[1], simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction(tree1[2], tree2[2], simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2[1], simplify=simplify, cached=cached)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2[2], simplify=simplify, cached=cached)
             if conj_neg is False and conj_pos is False:
                 return False
             if conj_neg is True and conj_pos is True:
@@ -138,7 +239,7 @@ class CCNF:
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
 
-        conj_abs = CCNF.conjunction(tree1[3], tree2, simplify=simplify, cached=cached)
+        conj_abs = CCNF.conjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
         if conj_abs is False:
             return False
 
@@ -149,8 +250,8 @@ class CCNF:
             else:
                 return phi
         else:
-            conj_neg = CCNF.conjunction(tree1[1], tree2, simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction(tree1[2], tree2, simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
             if conj_neg is False and conj_pos is False:
                 return False
             if conj_neg is True and conj_pos is True:
@@ -236,7 +337,7 @@ class CCNF:
             return tree
 
         if CCNF.equals(tree[1], tree[2]):
-            phi = CCNF.conjunction(tree[1], tree[3], simplify=False, cached=cached)
+            phi = CCNF.conjunction_serial(tree[1], tree[3], simplify=False, cached=cached)
             return CCNF.simplify_ccnf_rec(phi, cached=cached)
         
         # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
@@ -258,7 +359,7 @@ class CCNF:
                 return tree
 
             if CCNF.equals(tree[1], tree[2]):
-                tree = CCNF.conjunction(tree[1], tree[3], simplify=False, cached=cached)
+                tree = CCNF.conjunction_serial(tree[1], tree[3], simplify=False, cached=cached)
                 continue
             
             # First condition to avoid infinite iteration when phi_1 = phi_3 = True
@@ -359,19 +460,6 @@ class CCNF:
             return True
 
         return False
-
-# TODO: una idea interesante inspirado en la no repetición de TRUE y FALSE sería tratar de evitar también la 
-#   repetición de nodos idénticos desde abajo hasta arriba. En el caso de los nodos que directamente referencian
-#   True y False tenemos 2^3=8 posibles configuraciones v-neg(T/F)-pos(T/F)-abs(T/F) por cada v (que en el nivel
-#   más inferior será 1, cuidado con la necesidad de renombrar variables en previas y posteriores partes del 
-#   algoritmo), pero en un árbol ternario tendremos 3^Profundidad-1 cantidad de nodos. En vez de construir un
-#   nuevo nodo directamente, podemos mantener un diccionario (o una lista, ya que las variables van de 1 a n)
-#   que mapea variables a nodos, y cada vez que queramos crear un nuevo nodo con v como valor, podemos mirar
-#   antes si existe el nodo con la configuración neg-pos-abs que tenemos que usar. Así, en vez de construir un
-#   nuevo nodo, podemos devolver directamente el que ya existe.
-#   Esta aproximación puede ser más eficiente en cuanto a memoria, pero habría que ver su impacto en el coste
-#   temporal. Además, habría que ver también si la repetición de los nodos es necesaria o no en los siguientes
-#   pasos del algoritmo. Si es necesario, esta aproximación sería directamente inviable.
 
 #########################################################################################
 #########################################################################################
