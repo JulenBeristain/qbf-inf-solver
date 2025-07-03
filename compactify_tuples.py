@@ -11,6 +11,7 @@ from sys import getsizeof
 from functools import lru_cache
 from multiprocessing import Pool
 from os import cpu_count
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 ##############################################################################################
 ### COMPACTIFY ###############################################################################
@@ -105,7 +106,7 @@ class CCNF:
                     cached: bool,
                     use_direct_association = True,
                     simplify = False,
-                    parallel = False) -> Tuple | bool:
+                    parallel = True) -> Tuple | bool:
         if parallel and 3 < cpu_count():
             return CCNF.conjunction_parallel(tree1, tree2, use_direct_association=use_direct_association, simplify=simplify)
         else:
@@ -126,28 +127,56 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            pool = Pool(processes=3)
-            async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2[3], ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2[1], ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2[2], ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            pool.close()
+            #pool = Pool(processes=3)
+            #async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2[3], ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2[1], ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2[2], ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #pool.close()
+            #
+            ## Note: main problem with the parallel approach: we lost lazyness with the checks for False/True
+            ##       As it is now, the serial version is much more efficient
+            #
+            #pool.join()
+            #conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+            #if conj_abs is False:
+            #    return False
+            #if conj_neg is False and conj_pos is False:
+            #    return False
+            #if conj_neg is True and conj_pos is True:
+            #    return conj_abs # True o 
             
-            # TODO: main problem with the parallel approach: we lost lazyness with the checks for False/True
-            #       As it is now, the serial version is much more efficient
+            # Note: this version where we try to include lazyness is as efficient as the first version; i.e., 
+            #   less efficient than the serial version.
+            pool = ProcessPoolExecutor(max_workers=3)
+            futures = [ pool.submit(CCNF.conjunction_serial, tree1[i], tree2[i], {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, }) for i in range(1,4) ]
+            
+            results = [None] * 3
+            for f in as_completed(futures):
+                if f is futures[0]: results[0] = f.result()
+                elif f is futures[1]: results[1] = f.result()
+                elif f is futures[2]: results[2] = f.result()
+                else:
+                    print("UNKNOWN FUTURE!!!")
+                    exit()
+                
+                if results[2] is False:
+                    for i, fut in enumerate(futures):
+                        if results[i] is None: fut.cancel()
+                    #pool.shutdown(wait=False, cancel_futures=True)
+                    return False
+                if results[0] is False and results[1] is False:
+                    if results[2] is None: futures[2].cancel()
+                    #pool.shutdown(wait=False, cancel_futures=True)
+                    return False
+                if results[0] is True and results[1] is True:
+                    if results[2] is None: return futures[2].result()
+                    return results[2]
 
-            pool.join()
-            conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
-            if conj_abs is False:
-                return False
-            if conj_neg is False and conj_pos is False:
-                return False
-            if conj_neg is True and conj_pos is True:
-                return conj_abs # True o tuple
-
-            #phi = CCNF.create_node(tree1[0], async_neg.get(), async_pos.get(), async_abs.get(), cached=False)
+            conj_neg, conj_pos, conj_abs = results
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
             if simplify:
                 return CCNF.simplify_ccnf(phi, cached=False)
@@ -173,25 +202,57 @@ class CCNF:
                 return phi
         
         else:
-            pool = Pool(processes=3)
-            async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2, ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2, ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2, ), {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, })
-            pool.close()
+            #pool = Pool(processes=3)
+            #async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2, ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2, ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2, ), {'simplify': simplify, 'cached': False,
+            #    'use_direct_association': use_direct_association, })
+            #pool.close()
+            #
+            #pool.join()
+            #conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+            #if conj_abs is False:
+            #    return False
+            #if conj_neg is False and conj_pos is False:
+            #    return False
+            #if conj_neg is True and conj_pos is True:
+            #    return conj_abs # True o tuple
+            #
+            #phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
+            #if simplify:
+            #    return CCNF.simplify_ccnf(phi, cached=False)
+            #else:
+            #    return phi
 
-            pool.join()
-            conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
-            if conj_abs is False:
-                return False
-            if conj_neg is False and conj_pos is False:
-                return False
-            if conj_neg is True and conj_pos is True:
-                return conj_abs # True o tuple
+            pool = ProcessPoolExecutor(max_workers=3)
+            futures = [ pool.submit(CCNF.conjunction_serial, tree1[i], tree2, {'simplify': simplify, 'cached': False,
+                'use_direct_association': use_direct_association, }) for i in range(1,4) ]
+            
+            results = [None] * 3
+            for f in as_completed(futures):
+                if f is futures[0]: results[0] = f.result()
+                elif f is futures[1]: results[1] = f.result()
+                elif f is futures[2]: results[2] = f.result()
+                else:
+                    print("UNKNOWN FUTURE!!!")
+                    exit()
+                
+                if results[2] is False:
+                    for i, fut in enumerate(futures):
+                        if results[i] is None: fut.cancel()
+                    #pool.shutdown(wait=False, cancel_futures=True)
+                    return False
+                if results[0] is False and results[1] is False:
+                    if results[2] is None: futures[2].cancel()
+                    #pool.shutdown(wait=False, cancel_futures=True)
+                    return False
+                if results[0] is True and results[1] is True:
+                    if results[2] is None: return futures[2].result()
+                    return results[2]
 
-            #phi = CCNF.create_node(tree1[0], async_neg.get(), async_pos.get(), async_abs.get(), cached=False)
+            conj_neg, conj_pos, conj_abs = results
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
             if simplify:
                 return CCNF.simplify_ccnf(phi, cached=False)
