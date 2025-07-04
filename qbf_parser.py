@@ -885,7 +885,8 @@ def read_qdimacs_from_file_unchecked(filepath: str) -> Tuple[PositiveInt, Positi
             quantifiers.append(('e', list(range(1, num_vars + 1))))
         else:
             unquantified_vars = num_vars
-            while unquantified_vars:
+            #while unquantified_vars:
+            while tokens[0] == 'a' or tokens[0] == 'e':
                 q, qvars = tokens[0], [int(t) for t in tokens[1:-1]]
                 quantifiers.append((q, qvars))
                 unquantified_vars -= len(qvars)

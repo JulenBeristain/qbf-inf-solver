@@ -14,6 +14,27 @@ import gc
 import objgraph
 from pysat.solvers import Solver
 from pysat.process import Processor
+import numpy as np
+from collections import defaultdict
+import sys
+
+import signal
+from contextlib import contextmanager
+
+# Definición de la excepción para el timeout
+class TimeoutException(Exception):
+    pass
+
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0) # Deshabilita la alarma
 
 ##############################################################################################
 ### SOLVER USING INDUCTIVE NORMAL FORM
@@ -253,7 +274,16 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
                 ccnf = CCNF.disjunction(psi1, psi2, simplify=True, cached=cached)
         if debugging: print("Eliminated!")
 
-def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True, check_sat = True) -> bool:
+def reset_debugging():
+    global DB_Max_v
+    global DB_Total_nodes
+    global DB_Nodes
+    global DB_Size
+
+    DB_Max_v = DB_Total_nodes = DB_Nodes = DB_Size = None
+
+def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True, check_sat = True,
+               debugging = False) -> bool:
     """
     Function that receives the result of the parser and applies our QBF solver
     that takes advantage of the Inductive Normal Form.
@@ -284,15 +314,9 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print("Eliminating variables...")
     #gc.set_debug(gc.DEBUG_STATS | gc.DEBUG_COLLECTABLE | gc.DEBUG_UNCOLLECTABLE)
     #gc.set_debug(0)
-    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first, cached=False)
+    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=eliminate_first, cached=False,
+                               debugging=debugging)
     #print("Eliminated!")
-
-    global DB_Max_v
-    global DB_Total_nodes
-    global DB_Nodes
-    global DB_Size
-
-    DB_Max_v = DB_Total_nodes = DB_Nodes = DB_Size = None
 
     return res
 
@@ -459,10 +483,203 @@ def test_preprocessor():
     res = inf_solver(quantifiers, clauses, eliminate_first=True, preprocess=False)
     print('SAT' if res else 'UNSAT')
 
+
+def read_nv_nc(file_path):
+    with open(file_path) as f:
+        for line in f:
+            tokens = line.strip().split()
+            if tokens[0] == 'p' and tokens[1] == 'cnf':
+                return int(tokens[2]), int(tokens[3])
+    print(f"PROBLEMATIC INSTANCE: {file_path}")
+
+def test_generated():
+    sys.setrecursionlimit(3000)
+
+    directory = 'TestsGeneratedCombinationalEquivalence2017/klieber2017/'
+
+    print('\n##################################\n\tTesting Generated 2017\n##################################')
+    nvs, ncs = [], []
+    instances_less_than = defaultdict(list)
+    for filename in os.listdir(directory):
+        #print(f"Processing {filename} ...")
+        file_path = os.path.join(directory, filename)
+        res = read_nv_nc(file_path)
+        if res is None:
+            continue
+        nv, nc = res
+        nvs.append(nv)
+        ncs.append(nc)
+        for limit in [600 + 100*i for i in range(9)]:
+            if nv <= limit: #and nc <= limit:
+                instances_less_than[limit].append(filename)
+                break
+        else: #nobreak
+            instances_less_than[100000].append(filename)
+
+    nvs, ncs = np.array(nvs), np.array(ncs)
+    print(f"Maximum number of variables: {np.max(nvs)}")
+    print(f"Minimum number of variables: {np.min(nvs)}")
+    print(f"Mean number of variables:    {np.mean(nvs)}")
+    print(f"Maximum number of clauses:   {np.max(ncs)}")
+    print(f"Minimum number of clauses:   {np.min(ncs)}")
+    print(f"Mean number of clauses:      {np.mean(ncs)}")
+
+    for limit, instances in sorted(instances_less_than.items(), key=lambda li: li[0]):
+        print(f"Number of instances with less than {limit} vars: {len(instances)}")
+
+    for filename in [fn for limit in [600 + 100*i for i in range(5)] for fn in instances_less_than[limit]]:
+        print(f'--- Processing {filename} ... ')
+        file_path = os.path.join(directory, filename)
+        #set_trace()
+        nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
+        print(f"\tVars={nv} - Clauses={nc}")
+        #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"
+        t0 = time()
+        res = None # Inicializa res a None
+        try:
+            with time_limit(10): # Aquí aplicamos el límite de 60 segundos
+                res = inf_solver(quantifiers, clauses, debugging=False)
+            t1 = time()
+            print('SAT' if res else 'UNSAT')
+            print(f"Time: {t1 - t0 : .4f} seconds")
+        except TimeoutException:
+            t1 = time()
+            print(f"TIMEOUT after {t1 - t0 : .4f} seconds for {filename}!")
+            print("Consider increasing the timeout or optimizing the solver.")
+        except Exception as e:
+            t1 = time()
+            print(f"An unexpected error occurred for {filename}: {e}")
+            print(f"Time elapsed before error: {t1 - t0 : .4f} seconds")
+        print("-" * 40) # Separador para mejor legibilidad
+        reset_debugging()
+
+def test_qbfgallery2020():
+    sys.setrecursionlimit(3000)
+    directory = 'TestsQBFGallery2020/PCNF/'
+
+    print('\n##################################\n\tTesting QBFGallery 2020\n##################################')
+    nvs, ncs = [], []
+    instances_less_than = defaultdict(list)
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        res = read_nv_nc(file_path)
+        if res is None:
+            continue
+        nv, nc = res
+        nvs.append(nv)
+        ncs.append(nc)
+        for limit in [1000 * i for i in range(1, 11)]:
+            if nv <= limit and nc <= limit:
+                instances_less_than[limit].append(filename)
+                break
+        else: #nobreak
+            instances_less_than[100000].append(filename)
+
+    nvs, ncs = np.array(nvs), np.array(ncs)
+    print(f"Maximum number of variables: {np.max(nvs)}")
+    print(f"Minimum number of variables: {np.min(nvs)}")
+    print(f"Mean number of variables:    {np.mean(nvs)}")
+    print(f"Maximum number of clauses:   {np.max(ncs)}")
+    print(f"Minimum number of clauses:   {np.min(ncs)}")
+    print(f"Mean number of clauses:      {np.mean(ncs)}")
+
+    for limit, instances in sorted(instances_less_than.items(), key=lambda li: li[0]):
+        print(f"Number of instances with less than {limit} vars and clauses: {len(instances)}")
+    
+    for filename in instances_less_than[1000]:
+        print(f'--- Processing {filename} ... ')
+        file_path = os.path.join(directory, filename)
+        #set_trace()
+        nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
+        print(f"\tVars={nv} - Clauses={nc}")
+        #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"
+        t0 = time()
+        res = None # Inicializa res a None
+        try:
+            with time_limit(10): # Aquí aplicamos el límite de 60 segundos
+                res = inf_solver(quantifiers, clauses, debugging=True)
+            t1 = time()
+            print('SAT' if res else 'UNSAT')
+            print(f"Time: {t1 - t0 : .4f} seconds")
+        except TimeoutException:
+            t1 = time()
+            print(f"TIMEOUT after {t1 - t0 : .4f} seconds for {filename}!")
+            print("Consider increasing the timeout or optimizing the solver.")
+        except Exception as e:
+            t1 = time()
+            print(f"An unexpected error occurred for {filename}: {e}")
+            print(f"Time elapsed before error: {t1 - t0 : .4f} seconds")
+        print("-" * 40) # Separador para mejor legibilidad
+        reset_debugging()
+
+def test_qbfgallery2023():
+    sys.setrecursionlimit(3000)
+    directory = 'TestsQBFGallery2023/qdimacs/'
+
+    print('\n##################################\n\tTesting QBFGallery 2023\n##################################')
+    nvs, ncs = [], []
+    instances_less_than = defaultdict(list)
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        res = read_nv_nc(file_path)
+        if res is None:
+            continue
+        nv, nc = res
+        nvs.append(nv)
+        ncs.append(nc)
+        for limit in [1000 * i for i in range(1, 11)]:
+            if nv <= limit and nc <= limit:
+                instances_less_than[limit].append(filename)
+                break
+        else: #nobreak
+            instances_less_than[100000].append(filename)
+
+    nvs, ncs = np.array(nvs), np.array(ncs)
+    print(f"Maximum number of variables: {np.max(nvs)}")
+    print(f"Minimum number of variables: {np.min(nvs)}")
+    print(f"Mean number of variables:    {np.mean(nvs)}")
+    print(f"Maximum number of clauses:   {np.max(ncs)}")
+    print(f"Minimum number of clauses:   {np.min(ncs)}")
+    print(f"Mean number of clauses:      {np.mean(ncs)}")
+
+    for limit, instances in sorted(instances_less_than.items(), key=lambda li: li[0]):
+        print(f"Number of instances with less than {limit} vars and clauses: {len(instances)}")
+
+    for filename in instances_less_than[1000]:
+        print(f'--- Processing {filename} ... ')
+        file_path = os.path.join(directory, filename)
+        nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
+        print(f"\tVars={nv} - Clauses={nc}")
+        #assert inf_solver(quantifiers, clauses), f"SAT was not obtained with {filename_sat}!\n"
+        t0 = time()
+        res = None # Inicializa res a None
+        try:
+            with time_limit(10): # Aquí aplicamos el límite de 60 segundos
+                res = inf_solver(quantifiers, clauses, debugging=True)
+            t1 = time()
+            print('SAT' if res else 'UNSAT')
+            print(f"Time: {t1 - t0 : .4f} seconds")
+        except TimeoutException:
+            t1 = time()
+            print(f"TIMEOUT after {t1 - t0 : .4f} seconds for {filename}!")
+            print("Consider increasing the timeout or optimizing the solver.")
+        except Exception as e:
+            t1 = time()
+            print(f"An unexpected error occurred for {filename}: {e}")
+            print(f"Time elapsed before error: {t1 - t0 : .4f} seconds")
+        print("-" * 40) # Separador para mejor legibilidad
+        reset_debugging()
+
 if __name__ == '__main__':
     #test_renaming()
-    test_inf_solver()
+    #test_inf_solver()
     #test_inf_with_difficult_instances()
     #test_eliminate_first_with_problematic_instances()
     #test_preprocessor()
+    # Nota: timeout 10s no es suficiente! --> Pero no es el timeout, llega un punto que la cantidad de nodos es demasiado grande
+    #test_generated()
+    # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
+    #test_qbfgallery2020()
+    # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
+    test_qbfgallery2023()
     pass

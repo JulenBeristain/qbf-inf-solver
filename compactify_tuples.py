@@ -106,7 +106,7 @@ class CCNF:
                     cached: bool,
                     use_direct_association = True,
                     simplify = False,
-                    parallel = True) -> Tuple | bool:
+                    parallel = False) -> Tuple | bool:
         if parallel and 3 < cpu_count():
             return CCNF.conjunction_parallel(tree1, tree2, use_direct_association=use_direct_association, simplify=simplify)
         else:
