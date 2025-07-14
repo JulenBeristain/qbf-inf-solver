@@ -632,8 +632,132 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> int:
         i -= 1
     return num
 
-def compactify(clauses: CNF_Formula, cached:bool, absorb_with_prefixes = False, 
-               simplify_tautologies = True, simplify = False,
+def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
+    i = len(clauses) - 1
+    while i >= 0:
+        clause = clauses[i]
+        is_unit_clause = len(clause) == 1
+        v = clause[0]
+        is_existential_var = vars2quant[abs(v)] == 'e'
+        
+        if is_unit_clause and is_existential_var:
+            j = len(clauses) - 1
+            while j >= 0:
+                if v in clauses[j]:
+                    clauses.pop(j)
+                elif -v in clauses[j]:
+                    clauses[j].remove(-v)
+                    if not clauses[j]:
+                        return False
+                j -= 1
+
+            i = len(clauses) # - 1 is done outside of the 'if' 
+
+        i -= 1
+
+def _any_all_universal_clause(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> bool:
+    for clause in clauses:
+        if all( vars2quant[abs(lit)] == 'a' for lit in clause ):
+            return True
+    return False
+
+def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
+    # v -> ( [[i,j] where clauses[i,j] == v],  [[i',j'] where clauses[i',j'] == -v])
+    vars = list(vars2quant.keys())
+    num_vars = len(vars)
+    assert vars == list(range(1, num_vars+1)), "vars no va de 1 a n. Mal renaming o se pierde el orden al pasar a diccionario?"
+
+    """
+    polarities = [None] + [([], []) for _ in range(num_vars)]
+    for i in range(len(clauses)):
+        for j in range(len(clauses[i])):
+            lit = clauses[i][j]
+            assert lit != 0, "Ningún literal debería ser 0 !!!"
+            if lit > 0:
+                polarities[lit][0].append([i,j])
+            else:
+                polarities[-lit][1].append([i,j])
+    
+    for v in range(1, num_vars + 1):
+        if len(polarities[v][0]) == 0:
+            positions = polarities[v][1]
+        elif len(polarities[v][1]) == 0:
+            positions = polarities[v][0]
+        
+        if vars2quant[v] == 'e':
+            # With reversed we don't need to keep the number of removed clauses, because clause_i are ascendent (so descendent when reversed)
+            for clause_i, lit_i in reversed(positions):
+                clauses.pop(clause_i)
+
+                # Here this implementation gets complicated, since the cached positions must be updated
+                for next_v in range(v + 1, num_vars + 1):
+                    p_index = len(polarities[next_v])
+                    while p_index >= 0 and polarities[next_v]
+                    for clause_j, lit_j in reversed(polarities[next_v]):
+                        # simply removing is not enough, because we may detect more vars with same polarity than those that really are
+                        if clause_j == clause_i: 
+
+        else:
+            assert vars2quant[v] == 'a', "Cuantificador desconocido !!!"
+            for clause_i, lit_i in positions:
+                clauses[clause_i].pop(lit_i)
+                if not clauses[clause_i]:
+                    return False
+    """
+
+    for v in range(1, num_vars):
+        polarities = ([], [])
+        for i in range(len(clauses)):
+            for j in range(len(clauses[i])):
+                lit = clauses[i][j]
+                assert lit != 0, "Ningún literal debería ser 0 !!!"
+                if lit == v:
+                    polarities[0].append([i,j])
+                elif lit == -v:
+                    polarities[1].append([i,j])
+        
+        if len(polarities[0]) == 0:
+            positions = polarities[1]
+        elif len(polarities[1]) == 0:
+            positions = polarities[0]
+        else:
+            # Either the case of a quantified variable that doesn't appear in the clauses
+            # or the case of a variable with both polarities
+            continue
+
+        if vars2quant[v] == 'e':
+            # With reversed we don't need to keep the number of removed clauses, because clause_i are ascendent (so descendent when reversed)
+            for clause_i, lit_i in reversed(positions):
+                clauses.pop(clause_i)
+        else:
+            assert vars2quant[v] == 'a', "Cuantificador desconocido !!!"
+            for clause_i, lit_i in positions:
+                clauses[clause_i].pop(lit_i)
+                if not clauses[clause_i]:
+                    return False
+
+
+def _preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> None | bool:
+    vars2quant = {}
+    for q, vars in quantifiers:
+        for v in vars:
+            vars2quant[v] = q
+
+    # In place modification to clauses
+    if _polarity(clauses, vars2quant) is False:
+        return False
+    # In place modification to clauses
+    if _unit_propagation(clauses, vars2quant) is False:
+        return False
+    
+    if _any_all_universal_clause(clauses, vars2quant):
+        return False
+    
+
+def compactify(clauses: CNF_Formula, quantifiers: List[QBlock], 
+               cached:bool, absorb_with_prefixes = False, 
+               simplify_tautologies = True, preprocess = False, 
+               simplify = False,
                check_absorb_with_prefixes = False) -> Tuple | bool:
     """
     The idea is to have a ternary tree with a level for each variable in the CNF.
@@ -653,6 +777,11 @@ def compactify(clauses: CNF_Formula, cached:bool, absorb_with_prefixes = False,
         num = _eliminate_tautological_variables(clauses)
         assert num == 0, "Todavía hay cláusulas con varios v !!!"
 
+    if preprocess:
+        # In place modification to clauses
+        if _preprocess(clauses, quantifiers) is False:
+            return False
+        
     # Second, we order the clauses considering also that -v < v (for different variables we still use the absolute values)
     # Detail: lists of lists are ordered in lexicographical order (element by element until distinct ones are found, or by 
     #   length if one is prefix of the other)

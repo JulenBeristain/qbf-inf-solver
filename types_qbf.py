@@ -1,6 +1,6 @@
 # types_qbf.py
 
-from typing import List, Tuple, TextIO, Literal, Annotated, Optional
+from typing import List, Tuple, TextIO, Literal, Annotated, Optional, Dict
 
 ##############################################################################################
 ### TYPE ANNOTATIONS #########################################################################

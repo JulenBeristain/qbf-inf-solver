@@ -888,16 +888,21 @@ def read_qdimacs_from_file_unchecked(filepath: str) -> Tuple[PositiveInt, Positi
             #while unquantified_vars:
             while tokens[0] == 'a' or tokens[0] == 'e':
                 q, qvars = tokens[0], [int(t) for t in tokens[1:-1]]
-                quantifiers.append((q, qvars))
+                if qvars:
+                    quantifiers.append((q, qvars))
                 unquantified_vars -= len(qvars)
                 tokens = f.readline().strip().split()
 
         # Clauses
         unread_clauses = num_clauses
-        while unread_clauses:
-            clauses.append([int(t) for t in tokens[:-1]])
+        while True:
+            if tokens:
+                clauses.append([int(t) for t in tokens[:-1]])
             unread_clauses -= 1
-            tokens = f.readline().strip().split()
+            tokens = f.readline()
+            if tokens == "":
+                break
+            tokens = tokens.strip().split()
 
     return num_vars, num_clauses, clauses, quantifiers
 

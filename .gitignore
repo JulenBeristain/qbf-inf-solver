@@ -49,3 +49,6 @@ bica/
 klieber2017-qdimacs.zip
 qdimacs.tar.xz
 qdimacs20.tar.zst
+integration-tests/
+depqbf_script.py
+integration_results/
