@@ -6,8 +6,7 @@ import os
 from pdb import set_trace
 from types_qbf import *
 from qbf_parser import read_qdimacs_from_file_unchecked
-#from compactify import C_CNF_Tree, compactify
-from compactify_tuples import CCNF, compactify
+from compactify_cached import CCNF, compactify
 from qbf_naive_solver import naive_solver_v1
 from time import time
 import gc
@@ -70,18 +69,20 @@ DB_Total_nodes = None
 DB_Nodes = None
 DB_Size = None
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool,
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: int | bool, cached: bool,
                        eliminate_first = True, debugging = False, iterative = True) -> bool:
     if iterative:
         return _eliminate_variables_it(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
     return _eliminate_variables_rec(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
 
-def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: int | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
     if ccnf is True or ccnf is False:
         return ccnf
+
+    ccnf = CCNF.id2tuple[ccnf]
     
     assert len(quantifiers) > 0, "NOS HEMOS QUEDADO SIN CUANTIFICADORES PERO LA FÓRMULA NO SE HA SIMPLIFICADO A TRUE O FALSE!!!"
     
@@ -185,15 +186,17 @@ def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cach
     # Llamada recursiva para seguir eliminando variables
     return _eliminate_variables_rec(quantifiers, psi)
 
-def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: int | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
     while True:
-        set_trace()
+        #set_trace()
         if ccnf is True or ccnf is False:
             return ccnf
         
+        ccnf = CCNF.id2tuple[ccnf]
+
         # Nos quitamos la variable, pero hay que encontrarlo primero
         # While necesario en caso de que con las optimizaciones el árbol de ccnf haya pérdido no solo la variable del root
         while ccnf[0] != quantifiers[-1][1].pop():
@@ -274,7 +277,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
                 if debugging: print("Disyunción...")
                 psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
                 if debugging: print("Conjunción...")
-                set_trace()
+                #set_trace()
                 ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
             else:
                 # La versión paralela va peor que la versión en serie
@@ -324,11 +327,13 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print('Compactifying formula...')
     #t0 = time()
     # But it doesn't seem to improve so much to put compactify with simplify...
+    #set_trace()
     ccnf = compactify(clauses, quantifiers,
                       cached=cached, absorb_with_prefixes=False, 
                       simplify_tautologies=True, preprocess=True,
                       simplify=False, 
                       check_absorb_with_prefixes=False)
+    #set_trace()
     #t1 = time()
     #print('Compactified!')
     #print(f"Time: {t1 - t0 : .4f} s")
@@ -884,8 +889,8 @@ def test_integration():
         print(f"\tVars={nv} - Clauses={nc}")
         
         # Al testear cached, hay que vaciarlo para cada instancia
-        CCNF.create_node_cached.cache_clear()
-        assert CCNF.create_node_cached.cache_info().currsize == 0, "LRU cache de create_node no está vacío!!!"
+        CCNF.reset_nodes()
+        assert CCNF.num_nodes_created() == 0, "Los hashmaps ID-Tupla4 no están vacías!!!"
 
         t0 = time()
         res = None
@@ -909,7 +914,8 @@ def test_integration():
 def test_problematic_integration():
     directory = "integration-tests"
     problematic = {
-        '158.test_unsat.qdimacs': False
+        '9.SAT.qdimacs': True,
+        '10.SAT.qdimacs': True
     }
 
     for filename in problematic.keys():
@@ -937,8 +943,17 @@ def test_problematic_integration():
             t1 = time()
             print(f"An unexpected error occurred for {filename}: {e}")
             print(f"Time elapsed before error: {t1 - t0 : .4f} seconds")
+            
+            print(f"Tipo de la excepción: {type(e)}")
+            print(f"Representación de la excepción: {repr(e)}")
+            # Opcional: imprimir el traceback completo
+            import traceback
+            traceback.print_exc()
+            print("Número de llamadas a conjunction:", CCNF.conjunction_calls)
+        
         print("-" * 40) # Separador para mejor legibilidad
         reset_debugging()
+        CCNF.reset_conjunction_calls()
 
 if __name__ == '__main__':
     #test_renaming()
@@ -952,6 +967,6 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    #test_integration()
-    test_problematic_integration()
+    test_integration()
+    #test_problematic_integration()
     pass
