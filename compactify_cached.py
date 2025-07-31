@@ -12,6 +12,7 @@ from functools import lru_cache
 from multiprocessing import Pool
 from os import cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from collections import deque
 
 ##############################################################################################
 ### COMPACTIFY ###############################################################################
@@ -34,6 +35,9 @@ class CCNF:
 
     def num_nodes_created():
         return CCNF._next_id - 1
+
+    def num_current_nodes():
+        return len(CCNF.id2tuple)
     
     def restart_node_counter():
         CCNF._next_id = 1
@@ -46,6 +50,43 @@ class CCNF:
         CCNF.tuple2id = {}
         CCNF.id2tuple = {}
         CCNF._next_id = 1
+
+    def _collect_reachable_nodes(root_id: int) -> Set[int]:
+        """
+        Identifica todos los IDs de nodos alcanzables desde root_id
+        mediante un recorrido BFS (Breadth-First Search).
+        """
+        reachable_ids = set()
+        queue = deque([root_id]) # Usamos una cola para BFS
+
+        while queue:
+            current_id = queue.popleft() # Saca el primer ID de la cola
+            if current_id in reachable_ids:
+                continue # Ya visitado, lo saltamos
+            reachable_ids.add(current_id)
+
+            _, neg_tree_id, pos_tree_id, abs_tree_id = CCNF.id2tuple[current_id]
+            queue.extend(id for id in (neg_tree_id, pos_tree_id, abs_tree_id) if id > 1) # Check for bools
+
+        return reachable_ids
+
+    def cleanup_node_dictionaries(root_id: int) -> None:
+        """
+        Limpia los diccionarios id2tuple y tuple2id,
+        eliminando los nodos que no son alcanzables desde root_id.
+        """
+        reachable_ids = CCNF._collect_reachable_nodes(root_id)
+        
+        nodes_to_remove = CCNF.id2tuple.keys() - reachable_ids
+        for node_id in nodes_to_remove: # No se puede iterar sobre id2tuple porque lo modificamos
+            del CCNF.id2tuple[node_id]
+        
+        new_tuple2id = {}
+        for node_id in reachable_ids:
+            node_tuple = CCNF.id2tuple[node_id]
+            new_tuple2id[node_tuple] = node_id
+        CCNF.tuple2id.clear() # Vacía el dict existente
+        CCNF.tuple2id.update(new_tuple2id) # Llena con los elementos válidos
 
     def create_node(v: PositiveInt, negTree: int | bool, posTree: int | bool, absTree: int | bool, cached = True) -> int:
         assert absTree is not False, \

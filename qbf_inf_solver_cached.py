@@ -190,11 +190,23 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: int | bool, cached:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
+    cleanup = True # Pasarlo a parámetro
+    prev_num_nodes = 0
     while True:
         #set_trace()
         if ccnf is True or ccnf is False:
             return ccnf
         
+        if cleanup:
+            # Periódicamente conviene comprobar si hay nodos no alcanzables desde la raíz que ya no se utilizan
+            num_nodes = CCNF.num_current_nodes()
+            if num_nodes - prev_num_nodes > 1000:
+                #print("Cleaning the dictionaries of nodes ...")
+                #print(f"Number of nodes before = {num_nodes}")
+                CCNF.cleanup_node_dictionaries(ccnf)
+                prev_num_nodes = CCNF.num_current_nodes()
+                #print(f"Number of nodes after = {prev_num_nodes}")
+
         ccnf = CCNF.id2tuple[ccnf]
 
         # Nos quitamos la variable, pero hay que encontrarlo primero
