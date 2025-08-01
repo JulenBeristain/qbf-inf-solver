@@ -926,13 +926,13 @@ def test_integration():
 def test_problematic_integration():
     directory = "integration-tests"
     problematic = {
-        '9.SAT.qdimacs': True,
-        '10.SAT.qdimacs': True
+        '135.s1269_d2_s.qdimacs': True
     }
 
     for filename in problematic.keys():
         print(f'--- Processing {filename} ... ')
         file_path = os.path.join(directory, filename)
+        set_trace()
         nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
         print(f"\tVars={nv} - Clauses={nc}")
         
@@ -979,6 +979,6 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    test_integration()
-    #test_problematic_integration()
+    #test_integration()
+    test_problematic_integration()
     pass
