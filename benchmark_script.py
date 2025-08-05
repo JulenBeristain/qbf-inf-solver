@@ -282,10 +282,10 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
                 process.wait(timeout=5) # Give it a little time to terminate
             except subprocess.TimeoutExpired:
                 process.kill() # Force kill if it doesn't terminate
-            total_time_wall = time.time() - start_time_wall
             exit_status = "TIMEOUT"
-            cpu_time_user = timeout_seconds * 2 # Penalty for timeout
-            cpu_time_system = timeout_seconds * 2 # Penalty for timeout
+            total_time_wall = 2 * timeout_seconds # Penalty for timeout /
+            cpu_time_user = timeout_seconds # Penalty for timeout       |
+            cpu_time_system = timeout_seconds # Penalty for timeout     \ total_cpu_time = 2*timeout
         else:
             total_time_wall = time.time() - start_time_wall
             stdout, stderr = process.communicate()
@@ -376,12 +376,13 @@ if __name__ == "__main__":
             #print(f"    Status: {result['status']}, CPU Time: {result['total_cpu_time']}s, Peak Mem: {result['peak_memory_mb']}MB")
         
         aggregate = copy.deepcopy(result)
+        aggregate['total_wall_time'] = sum(r['total_wall_time'] for r in instance_results) / len(instance_results)
         aggregate['total_cpu_time'] = sum(r['total_cpu_time'] for r in instance_results) / len(instance_results)
         aggregate['peak_memory_mb'] = sum(r['peak_memory_mb'] for r in instance_results) / len(instance_results)
         instance_info = get_instance_info(instance_path)
         all_results.append(aggregate | instance_info)
         
-        print(f"    Status: {aggregate['status']}, CPU Time: {aggregate['total_cpu_time']}s, Peak Mem: {aggregate['peak_memory_mb']}MB")
+        print(f"    Status: {aggregate['status']}, Wall Time: {aggregate['total_wall_time']}, CPU Time: {aggregate['total_cpu_time']}s, Peak Mem: {aggregate['peak_memory_mb']}MB")
 
     # Save results to a CSV file
     output_csv_file = f"{solver_name}_benchmark_results.csv"
@@ -405,25 +406,45 @@ if __name__ == "__main__":
             sys.exit(3)
     per_correct, per_incorrect, per_timeout = (num / num_instances for num in (num_correct, num_incorrect, num_timeout))
 
-    time_correct = [res['total_cpu_time'] for res in all_results if res['status'] == 'CORRECT']
-    if time_correct:
-        time_correct_mean = statistics.mean(time_correct)
-        time_correct_min = min(time_correct)
-        time_correct_max = max(time_correct)
-        time_correct_median = statistics.median(time_correct)
-        time_correct_std_dev = statistics.stdev(time_correct) if len(time_correct) > 1 else 0.0
+    wall_time_correct = [res['total_wall_time'] for res in all_results if res['status'] == 'CORRECT']
+    if wall_time_correct:
+        wall_time_correct_mean = statistics.mean(wall_time_correct)
+        wall_time_correct_min = min(wall_time_correct)
+        wall_time_correct_max = max(wall_time_correct)
+        wall_time_correct_median = statistics.median(wall_time_correct)
+        wall_time_correct_std_dev = statistics.stdev(wall_time_correct) if len(wall_time_correct) > 1 else 0.0
     else:
-        time_correct_mean = time_correct_min = time_correct_max = time_correct_median = time_correct_std_dev = 'None'
+        wall_time_correct_mean = wall_time_correct_min = wall_time_correct_max = wall_time_correct_median = wall_time_correct_std_dev = 'None'
 
-    time_penalized = [res['total_cpu_time'] for res in all_results if res['status'] != 'INCORRECT']
-    if time_penalized:
-        time_penalized_mean = statistics.mean(time_penalized)
-        time_penalized_min = min(time_penalized)
-        time_penalized_max = max(time_penalized)
-        time_penalized_median = statistics.median(time_penalized)
-        time_penalized_std_dev = statistics.stdev(time_penalized) if len(time_penalized) > 1 else 0.0
+    cpu_time_correct = [res['total_cpu_time'] for res in all_results if res['status'] == 'CORRECT']
+    if cpu_time_correct:
+        cpu_time_correct_mean = statistics.mean(cpu_time_correct)
+        cpu_time_correct_min = min(cpu_time_correct)
+        cpu_time_correct_max = max(cpu_time_correct)
+        cpu_time_correct_median = statistics.median(cpu_time_correct)
+        cpu_time_correct_std_dev = statistics.stdev(cpu_time_correct) if len(cpu_time_correct) > 1 else 0.0
     else:
-        time_penalized_mean = time_penalized_min = time_penalized_max = time_penalized_median = time_penalized_std_dev = 'None'
+        cpu_time_correct_mean = cpu_time_correct_min = cpu_time_correct_max = cpu_time_correct_median = cpu_time_correct_std_dev = 'None'
+
+    wall_time_penalized = [res['total_wall_time'] for res in all_results if res['status'] != 'INCORRECT']
+    if wall_time_penalized:
+        wall_time_penalized_mean = statistics.mean(wall_time_penalized)
+        wall_time_penalized_min = min(wall_time_penalized)
+        wall_time_penalized_max = max(wall_time_penalized)
+        wall_time_penalized_median = statistics.median(wall_time_penalized)
+        wall_time_penalized_std_dev = statistics.stdev(wall_time_penalized) if len(wall_time_penalized) > 1 else 0.0
+    else:
+        wall_time_penalized_mean = wall_time_penalized_min = wall_time_penalized_max = wall_time_penalized_median = wall_time_penalized_std_dev = 'None'
+
+    cpu_time_penalized = [res['total_cpu_time'] for res in all_results if res['status'] != 'INCORRECT']
+    if cpu_time_penalized:
+        cpu_time_penalized_mean = statistics.mean(cpu_time_penalized)
+        cpu_time_penalized_min = min(cpu_time_penalized)
+        cpu_time_penalized_max = max(cpu_time_penalized)
+        cpu_time_penalized_median = statistics.median(cpu_time_penalized)
+        cpu_time_penalized_std_dev = statistics.stdev(cpu_time_penalized) if len(cpu_time_penalized) > 1 else 0.0
+    else:
+        cpu_time_penalized_mean = cpu_time_penalized_min = cpu_time_penalized_max = cpu_time_penalized_median = cpu_time_penalized_std_dev = 'None'
 
     memory_usage = [res['peak_memory_mb'] for res in all_results if res['status'] != 'INCORRECT']
     if memory_usage:
@@ -444,16 +465,29 @@ if __name__ == "__main__":
         'per_incorrect': per_incorrect,
         'timeout_num': num_timeout,
         'timeout_per': per_timeout,
-        'time_correct_s_mean': time_correct_mean,
-        'time_correct_s_min': time_correct_min,
-        'time_correct_s_max': time_correct_max,
-        'time_correct_s_median': time_correct_median,
-        'time_correct_s_std_dev': time_correct_std_dev,
-        'time_penalized_s_mean': time_penalized_mean,
-        'time_penalized_s_min': time_penalized_min,
-        'time_penalized_s_max': time_penalized_max,
-        'time_penalized_s_median': time_penalized_median,
-        'time_penalized_s_std_dev': time_penalized_std_dev,
+        
+        'wall_time_correct_s_mean':      wall_time_correct_mean,
+        'wall_time_correct_s_min':       wall_time_correct_min,
+        'wall_time_correct_s_max':       wall_time_correct_max,
+        'wall_time_correct_s_median':    wall_time_correct_median,
+        'wall_time_correct_s_std_dev':   wall_time_correct_std_dev,
+        'wall_time_penalized_s_mean':    wall_time_penalized_mean,
+        'wall_time_penalized_s_min':     wall_time_penalized_min,
+        'wall_time_penalized_s_max':     wall_time_penalized_max,
+        'wall_time_penalized_s_median':  wall_time_penalized_median,
+        'wall_time_penalized_s_std_dev': wall_time_penalized_std_dev,
+
+        'cpu_time_correct_s_mean':      cpu_time_correct_mean,
+        'cpu_time_correct_s_min':       cpu_time_correct_min,
+        'cpu_time_correct_s_max':       cpu_time_correct_max,
+        'cpu_time_correct_s_median':    cpu_time_correct_median,
+        'cpu_time_correct_s_std_dev':   cpu_time_correct_std_dev,
+        'cpu_time_penalized_s_mean':    cpu_time_penalized_mean,
+        'cpu_time_penalized_s_min':     cpu_time_penalized_min,
+        'cpu_time_penalized_s_max':     cpu_time_penalized_max,
+        'cpu_time_penalized_s_median':  cpu_time_penalized_median,
+        'cpu_time_penalized_s_std_dev': cpu_time_penalized_std_dev,
+        
         'memory_peak_mb_mean': memory_mean,
         'memory_peak_mb_min': memory_min,
         'memory_peak_mb_max': memory_max,
