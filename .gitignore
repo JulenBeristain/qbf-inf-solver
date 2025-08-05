@@ -52,3 +52,5 @@ qdimacs20.tar.zst
 integration-tests/
 depqbf_script.py
 integration_results/
+obtain_results.py
+benchmark_results/

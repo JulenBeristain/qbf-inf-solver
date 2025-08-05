@@ -8,8 +8,11 @@ from itertools import product
 import numpy as np
 import os
 from pdb import set_trace
+import sys
+
 from types_qbf import *
 from qbf_parser import read_qdimacs_from_file_unchecked
+from cnf_preprocessor import preprocess as preprocess_cnf
 
 ##############################################################################################
 ### AUXILIAR FUNCTIONS TO WORK WITH CNFs #####################################################
@@ -42,8 +45,6 @@ def _formula_is_satisfied(assignment: List[int], clauses: CNF_Formula):
     return all( _clause_is_satisfied(assignment, c) for c in clauses )
 
 ##############################################################################################
-# TODO: podríamos incluso aprovechar el preprocesador de SAT que implementamos en MAC para simplificar todavía
-#       más la fórmula.
 
 def _simplified_clause(assignment: List[int], clause: Clause) -> Optional[Clause]:
     clause_ = []
@@ -76,14 +77,22 @@ def _simplified_formula(assignment: List[int], clauses: CNF_Formula) -> Optional
 
 ##############################################################################################
 ##############################################################################################
-def naive_solver_v1(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
+def naive_solver_v1(quantifiers: List[QBlock], clauses: CNF_Formula, preprocess=False) -> bool:
     """
     """
-    # TODO: este chequeo lo suyo es hacerlo una única vez en una función interfaz que llame a esta
-    #       es para el caso del literal True
-    if not quantifiers:
+    if not quantifiers: # Case of literal True
         return True
+    
+    if preprocess:
+        if preprocess_cnf(clauses, quantifiers) is False:
+            return False
+        
+    return naive_solver_v1_rec(quantifiers, clauses)
 
+def naive_solver_v1_rec(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
+    """
+    PRE: quantifiers no está vacío.
+    """
     q, vs = quantifiers[0]
     array_vs = np.array(vs) # Sorting vs by absolute valuecould be helpfull 
                             # in _literal_is_satisfied to enable binary search
@@ -117,7 +126,7 @@ def naive_solver_v1(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
                     # False assignment
                     continue
                 
-                if naive_solver_v1(quantifiers_, clauses_):
+                if naive_solver_v1_rec(quantifiers_, clauses_):
                     return True
             return False
 
@@ -130,7 +139,7 @@ def naive_solver_v1(quantifiers: List[QBlock], clauses: CNF_Formula) -> bool:
                     # False assignment
                     return False
 
-                if not naive_solver_v1(quantifiers_, clauses_):
+                if not naive_solver_v1_rec(quantifiers_, clauses_):
                     return False
             return True
 
@@ -366,6 +375,8 @@ def test(naive_solver, name):
     for filename_unsat in os.listdir(directory_unsat):
         print(f'Processing {filename_unsat} ...')
         file_path = os.path.join(directory_unsat, filename_unsat)
+        #if filename_unsat == 'ucnf0.qdimacs':
+        #    set_trace()
         nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
         assert not naive_solver(quantifiers, clauses), f"UNSAT was NOT obtained with {filename_unsat}!\n"
 
@@ -381,11 +392,21 @@ def test_mikel_problem():
     print('Sí que es UNSAT!')
 
 if __name__ == '__main__':
-    test(naive_solver_v1, 'v1')
+    #test(naive_solver_v1, 'v1')
     #test(naive_solver_v1_2, 'v1_2')
     #test(naive_solver_v3, 'v3')
     #test(naive_solver_v3_2, 'v3_2')
     # v3 es muchísimo más ineficiente que v1!!!
     # TODO: test v3 excluding SAT/r_100_80_11.qdimacs
-
     #test_mikel_problem()
+
+    #"""
+    if len(sys.argv) != 2:
+        print("ERROR: usage --> python3 qbf_naive_solver.py <name_instance in QDIMACS>", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
+    print('SAT' if naive_solver_v1(quantifiers, clauses, preprocess=False) else 'UNSAT')
+    #"""
