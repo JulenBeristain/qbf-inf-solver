@@ -190,7 +190,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
     while True:
-        set_trace()
+        #set_trace()
         if ccnf is True or ccnf is False:
             return ccnf
         
@@ -274,7 +274,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
                 if debugging: print("Disyunción...")
                 psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
                 if debugging: print("Conjunción...")
-                set_trace()
+                #set_trace()
                 ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
             else:
                 # La versión paralela va peor que la versión en serie
@@ -319,7 +319,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     _rename_variables(quantifiers, clauses)
     #print("Finished renaming!")
     
-    cached = True
+    cached = False
 
     #print('Compactifying formula...')
     #t0 = time()
@@ -884,8 +884,7 @@ def test_integration():
         print(f"\tVars={nv} - Clauses={nc}")
         
         # Al testear cached, hay que vaciarlo para cada instancia
-        CCNF.create_node_cached.cache_clear()
-        assert CCNF.create_node_cached.cache_info().currsize == 0, "LRU cache de create_node no está vacío!!!"
+        CCNF.clean_caches()
 
         t0 = time()
         res = None
@@ -952,6 +951,6 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    #test_integration()
-    test_problematic_integration()
+    test_integration()
+    #test_problematic_integration()
     pass

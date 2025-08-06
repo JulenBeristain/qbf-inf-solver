@@ -11,6 +11,8 @@ from pdb import set_trace
 from qbf_parser import read_qdimacs_from_file_unchecked
 from types_qbf import *
 
+# TODO: mirar si con la última ejecución de DepQBF conseguimos algún resultado extra no TIMEOUT
+
 RESULTS = {
     '1.true.qdimacs': True,
     '10.SAT.qdimacs': True,
@@ -297,7 +299,7 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
                 exit_status = 'CORRECT'
             elif solver_output == 'UNSAT' and RESULTS[instance] is False:
                 exit_status = 'CORRECT'
-            elif RESULTS['instance'] == 'TIMEOUT':
+            elif RESULTS[instance] == 'TIMEOUT':
                 exit_status = "EUREKA!"
             else:
                 exit_status = 'INCORRECT'

@@ -47,9 +47,11 @@ class CCNF:
     id2tuple = {}
 
     def reset_nodes() -> None:
-        CCNF.tuple2id = {}
-        CCNF.id2tuple = {}
+        CCNF.tuple2id.clear()
+        CCNF.id2tuple.clear()
         CCNF._next_id = 1
+        CCNF.conjunction_cache.clear()
+        CCNF.disjunction_cache.clear()
 
     def _collect_reachable_nodes(root_id: int) -> Set[int]:
         """
@@ -81,12 +83,11 @@ class CCNF:
         for node_id in nodes_to_remove: # No se puede iterar sobre id2tuple porque lo modificamos
             del CCNF.id2tuple[node_id]
         
-        new_tuple2id = {}
-        for node_id in reachable_ids:
-            node_tuple = CCNF.id2tuple[node_id]
-            new_tuple2id[node_tuple] = node_id
-        CCNF.tuple2id.clear() # Vacía el dict existente
-        CCNF.tuple2id.update(new_tuple2id) # Llena con los elementos válidos
+        CCNF.tuple2id = {tuple_:id for id,tuple_ in CCNF.id2tuple.items()}
+
+        CCNF.conjunction_cache = {k:v for k,v in CCNF.conjunction_cache.items() if v not in nodes_to_remove}
+        CCNF.disjunction_cache = {k:v for k,v in CCNF.disjunction_cache.items() if v not in nodes_to_remove}
+
 
     def create_node(v: PositiveInt, negTree: int | bool, posTree: int | bool, absTree: int | bool, cached = True) -> int:
         assert absTree is not False, \
@@ -125,6 +126,10 @@ class CCNF:
     def reset_conjunction_calls() -> None:
         CCNF.conjunction_calls = 0
 
+    # id1 x id2 -> id_result, where isintance(id_1/2, int) and isinstance(id_result, int | bool)
+    conjunction_cache = {}
+    disjunction_cache = {}
+
     def conjunction(id1: int | bool, id2: int | bool, 
                     cached: bool = True,
                     use_direct_association = True,
@@ -146,56 +151,78 @@ class CCNF:
         # Domination (false is the dominant element of conjunction)
         if id1 is False or id2 is False: 
             return False
-
+        # Previous base cases are not introduced in the cache because it's more efficient to compare with 'is' than 
+        # calling to 'get' with a dict. From now on, we know that both ids are ints, so the keys of our cache are always
+        # 2-tuples of ints (the values can be an int or a bool).
+        
+        # Commutativity: make sure that tree1[0] >= tree2[0] (the root variable). That way, unnecesary entries are not stored
         tree1, tree2 = CCNF.id2tuple[id1], CCNF.id2tuple[id2]
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+            id1, id2 = id2, id1
+
+        # Cache
+        cached_res = CCNF.conjunction_cache.get((id1, id2))
+        if cached_res is not None:
+            return cached_res
 
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
             conj_abs = CCNF.conjunction(tree1[3], tree2[3], simplify=simplify)
             if conj_abs is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
                 return False
             conj_neg = CCNF.conjunction(tree1[1], tree2[1], simplify=simplify)
             conj_pos = CCNF.conjunction(tree1[2], tree2[2], simplify=simplify)
             if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
                 return False
             if conj_neg is True and conj_pos is True:
-                return conj_abs # Ya sea True o Tuple
+                CCNF.conjunction_cache[(id1, id2)] = conj_abs
+                return conj_abs # Ya sea True o int
             
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
             if simplify:
-                return CCNF.simplify_ccnf(phi)
+                res = CCNF.simplify_ccnf(phi)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
             else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
                 return phi
 
-        # Different maximum variables
-        # Commutativity
-        if tree1[0] < tree2[0]:
-            tree1, tree2 = tree2, tree1
-            id1, id2 = id2, id1
-
+        # Different maximum variables where tree1[0] > tree2[0]
         conj_abs = CCNF.conjunction(tree1[3], id2, simplify=simplify)
         if conj_abs is False:
+            CCNF.conjunction_cache[(id1, id2)] = False
             return False
 
         if use_direct_association:
             phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs)
             if simplify:
-                return CCNF.simplify_ccnf(phi)
+                res = CCNF.simplify_ccnf(phi)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
             else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
                 return phi
         else:
             conj_neg = CCNF.conjunction(tree1[1], id2, simplify=simplify)
             conj_pos = CCNF.conjunction(tree1[2], id2, simplify=simplify)
             if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
                 return False
             if conj_neg is True and conj_pos is True:
-                return conj_abs # Ya sea True o Tuple
+                CCNF.conjunction_cache[(id1, id2)] = conj_abs
+                return conj_abs # Ya sea True o int
             
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs)
             if simplify:
-                return CCNF.simplify_ccnf(phi)
+                res = CCNF.simplify_ccnf(phi)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
             else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
                 return phi
 
     def disjunction(id1: int | bool, id2: int | bool,
@@ -211,14 +238,25 @@ class CCNF:
         # Domination (true is the dominant element of disjunction)
         if id1 is True or id2 is True:
             return True
+        # For the previous cases is innecesary and less efficient to use the cache
 
         tree1, tree2 = CCNF.id2tuple[id1], CCNF.id2tuple[id2]
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+            id1, id2 = id2, id1
+
+        # Cache
+        cached_res = CCNF.disjunction_cache.get((id1, id2))
+        if cached_res is not None:
+            return cached_res
 
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
             phi_3_ = CCNF.disjunction(tree1[3], tree2[3], simplify=simplify)
             if phi_3_ is False:
+                CCNF.disjunction_cache[(id1, id2)] = False
                 return False
             
             phi_11_ = CCNF.conjunction(tree2[1], tree2[3], simplify=simplify)
@@ -232,35 +270,42 @@ class CCNF:
             phi_14_ = CCNF.conjunction(phi_12_, phi_13_, simplify=simplify)
             phi_24_ = CCNF.conjunction(phi_22_, phi_23_, simplify=simplify)
             if phi_14_ is False and phi_24_ is False:
+                CCNF.disjunction_cache[(id1, id2)] = False
                 return False
             if phi_14_ is True and phi_24_ is True:
+                CCNF.disjunction_cache[(id1, id2)] = phi_3_
                 return phi_3_ # Ya sea True o int
             
             phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_)
             if simplify:
-                return CCNF.simplify_ccnf(phi)
+                res = CCNF.simplify_ccnf(phi)
+                CCNF.disjunction_cache[(id1, id2)] = res
+                return res
             else:
+                CCNF.disjunction_cache[(id1, id2)] = phi
                 return phi
             
-        # Commutativity
-        if tree1[0] < tree2[0]:
-            tree1, tree2 = tree2, tree1
-            id1, id2 = id2, id1
-        
+        # Different variables in the root where tree1[0] > tree2[0]
         disj_abs = CCNF.disjunction(tree1[3], id2, simplify=simplify)
         if disj_abs is False:
+            CCNF.disjunction_cache[(id1, id2)] = False
             return False
         disj_neg = CCNF.disjunction(tree1[1], id2, simplify=simplify)
         disj_pos = CCNF.disjunction(tree1[2], id2, simplify=simplify)
         if disj_neg is False and disj_pos is False:
+            CCNF.disjunction_cache[(id1, id2)] = False
             return False
         if disj_neg is True and disj_pos is True:
+            CCNF.disjunction_cache[(id1, id2)] = disj_abs
             return disj_abs # Ya sea True o int
         
         phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs)
         if simplify:
-            return CCNF.simplify_ccnf(phi)
+            res = CCNF.simplify_ccnf(phi)
+            CCNF.disjunction_cache[(id1, id2)] = res
+            return res
         else:
+            CCNF.disjunction_cache[(id1, id2)] = phi
             return phi
 
     def simplify_ccnf(tree: int | bool, cached: bool = True, iterative = True) -> int | bool:
@@ -523,10 +568,13 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None |
             for j in range(len(clauses[i])):
                 lit = clauses[i][j]
                 assert lit != 0, "Ningún literal debería ser 0 !!!"
+                # Break Precondition: tautological variables and clauses removed, so v is not several times in a clause, nor v and -v at the same time
                 if lit == v:
                     polarities[0].append([i,j])
+                    break
                 elif lit == -v:
                     polarities[1].append([i,j])
+                    break
         
         if len(polarities[0]) == 0:
             positions = polarities[1]

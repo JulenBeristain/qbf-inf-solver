@@ -223,7 +223,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: int | bool, cached:
 
         # Imprimimos la información antes de simplificar la fórmula
         #set_trace()
-        #"""
+        """
         if debugging:
             max_v = ccnf[0]
             depth = CCNF.depth(ccnf)
@@ -271,7 +271,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: int | bool, cached:
             DB_Size = size
             if debugging:
                 print(" " * 50, flush=True)
-        #"""
+        """
 
         # Simplificamos la fórmula
         if q == 'a':
@@ -926,7 +926,7 @@ def test_integration():
 def test_problematic_integration():
     directory = "integration-tests"
     problematic = {
-        '135.s1269_d2_s.qdimacs': True
+        '10.SAT.qdimacs': True
     }
 
     for filename in problematic.keys():
@@ -942,7 +942,7 @@ def test_problematic_integration():
             if filename.startswith('85'): set_trace()
 
             #with time_limit(10): # Aquí aplicamos el límite de 60 segundos
-            res = inf_solver(quantifiers, clauses, debugging=False)
+            res = inf_solver(quantifiers, clauses, debugging=True)
             
             t1 = time()
             print(f"{'CORRECT' if res == problematic[filename] else 'INCORRECT'} {'SAT' if res else 'UNSAT'}")
@@ -979,6 +979,6 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    #test_integration()
-    test_problematic_integration()
+    test_integration()
+    #test_problematic_integration()
     pass

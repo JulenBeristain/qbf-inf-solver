@@ -34,7 +34,7 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> int:
                 break
     return num
 
-def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
+def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Optional[bool]:
     i = len(clauses) - 1
     while i >= 0:
         clause = clauses[i]
@@ -64,21 +64,21 @@ def _any_all_universal_clause(clauses: CNF_Formula, vars2quant: Dict[int, Quanti
             return True
     return False
 
-def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
-    vars = list(vars2quant.keys())
-    num_vars = len(vars)
-
-    for v in range(1, num_vars):
+def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Optional[bool]:
+    for v in vars2quant:
         # polarities == ( [[i,j] where clauses[i,j] == v],  [[i',j'] where clauses[i',j'] == -v])
         polarities = ([], [])
         for i in range(len(clauses)):
             for j in range(len(clauses[i])):
                 lit = clauses[i][j]
                 assert lit != 0, "Ningún literal debería ser 0 !!!"
+                # Break Precondition: tautological variables and clauses removed, so v is not several times in a clause, nor v and -v at the same time
                 if lit == v:
                     polarities[0].append([i,j])
+                    break
                 elif lit == -v:
                     polarities[1].append([i,j])
+                    break
         
         if len(polarities[0]) == 0:
             positions = polarities[1]
@@ -95,13 +95,14 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None |
                 clauses.pop(clause_i)
         else:
             assert vars2quant[v] == 'a', "Cuantificador desconocido !!!"
+            # Since in each clause v only appears once (like v or -v), there is no index problems with pop
             for clause_i, lit_i in positions:
                 clauses[clause_i].pop(lit_i)
                 if not clauses[clause_i]:
                     return False
 
 
-def preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> None | bool:
+def preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Optional[bool]:
     vars2quant = {}
     for q, vars in quantifiers:
         for v in vars:

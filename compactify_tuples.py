@@ -57,6 +57,23 @@ class CCNF:
 
         return (v, negTree, posTree, absTree)
 
+    """
+    Nota: absolutamente infeasible pasar lru_cache a cache manual dict tuple2tuple para limpiarla periódicamente. Habría
+        que iterar sobre todos los árboles guardados en la cache y comprobar si es un subtree (al principio de 
+        eliminate_variables) del árbol correspondiente a la fórmula actual. Mucho más costoso que en la versión cached.
+
+        Tratando de pensar en una solución weakreferences pueden ser interesantes. No obstante, con el modulo weakref no
+        podemos referenciar débilmente a tuplas ni listas, ni tampoco tener diccionarios con llaves y valores como 
+        weakreferences (solo uno u otro). La segunda limitación creo que es superable usando dicts con key values
+        al mismo weakreference creado directamente con weakref.ref(objeto), y después, a la hora de hacer la limpieza,
+        simplemente ver si ref()=key()=value() is None y eliminarlo del diccionario. Pero la primera limitación es insuperable.
+
+        Por tanto, la mejor opción para seguir evitando crear más tuplas/nodos repetidos es usar lru_cache. Podríamos 
+        usar un dict manualmente, pero como ni siquiera así podemos hacer limpieza periódica, mejor simplificar la implementación
+        usando una herramienta que ya se encarga de manejar el dict. Además, en esta función no tenemos parámetros extra o
+        formas de reordenarlos por conmutatividad que justifique hacerlo manualmente.
+    """
+
     @lru_cache(maxsize=None)
     def create_node_cached(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool) -> Tuple:
         """
@@ -105,7 +122,7 @@ class CCNF:
         if parallel and 3 < cpu_count():
             return CCNF.conjunction_parallel(tree1, tree2, use_direct_association=use_direct_association, simplify=simplify)
         else:
-            return CCNF.conjunction_serial(tree1, tree2, cached=cached, use_direct_association=use_direct_association, simplify=simplify)
+            return CCNF.conjunction_serial_manual(tree1, tree2, cached=cached, use_direct_association=use_direct_association, simplify=simplify)
 
     def conjunction_parallel(tree1: Tuple | bool, tree2: Tuple | bool,
                     use_direct_association = True,
@@ -254,6 +271,27 @@ class CCNF:
             else:
                 return phi
 
+
+    """
+    Nota: en vez de lru_cache podríamos usar un diccionario creado manualmente que fuera tuple1 x tuple2 -> tuple_res. En este caso,
+        como usamos las fórmulas anidadas enteras y no hacemos limpieza de nodos en la cache ni usamos IDs como en la versión 'cached',
+        tampoco sería necesario hacer limpieza de las entradas de la cache manual. Por otro lado, el usar un dict manualmente se
+        justificaría por tres motivos: limitarnos a usar tree1 y tree2 como únicos parámetros en la llave; evitar guardar keys con
+        valores booleanos y en dichos casos básicos usar 'is' con booleanos; aprovechar la conmutatividad para guardar una única entrada
+        para cualquier par tree1,tree2 (es decir, no guardar después otra entrada tree2,tree1).
+    
+    Al probarlo con dicts manuales, los tiempos de ejecución en test_integration son muy parecidos (habría que ver con psutil el gasto 
+    de memoria).
+    """
+
+    def clean_caches() -> None:
+        CCNF.create_node_cached.cache_clear()
+        CCNF.conjunction_serial.cache_clear()
+        CCNF.disjunction_serial.cache_clear()
+        CCNF.conjunction_cache.clear()
+        CCNF.disjunction_cache.clear()
+
+    @lru_cache(maxsize=None)
     def conjunction_serial(tree1: Tuple | bool, tree2: Tuple | bool, 
                     cached: bool,
                     use_direct_association = True,
@@ -318,6 +356,92 @@ class CCNF:
                 return CCNF.simplify_ccnf(phi, cached=cached)
             else:
                 return phi
+            
+    
+    conjunction_cache = {}
+
+    def conjunction_serial_manual(tree1: Tuple | bool, tree2: Tuple | bool, 
+                    cached: bool,
+                    use_direct_association = True,
+                    simplify = False) -> Tuple | bool:
+        """
+        Returns the conjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (true is the neutral element of conjunction)
+        if tree1 is True: return tree2
+        if tree2 is True: return tree1
+
+        # Domination (false is the dominant element of conjunction)
+        if tree1 is False or tree2 is False: 
+            return False
+
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        res = CCNF.conjunction_cache.get((tree1, tree2))
+        if res is not None:
+            return res
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            conj_abs = CCNF.conjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            if conj_abs is False:
+                CCNF.conjunction_cache[(tree1, tree2)] = False
+                return False
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2[1], simplify=simplify, cached=cached)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2[2], simplify=simplify, cached=cached)
+            if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(tree1, tree2)] = False
+                return False
+            if conj_neg is True and conj_pos is True:
+                CCNF.conjunction_cache[(tree1, tree2)] = conj_abs
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
+            if simplify:
+                res = CCNF.simplify_ccnf(phi, cached=cached)
+                CCNF.conjunction_cache[(tree1, tree2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(tree1, tree2)] = phi
+                return phi
+
+        # Different maximum variables, where tree1[0] > tree2[0]
+        conj_abs = CCNF.conjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        if conj_abs is False:
+            CCNF.conjunction_cache[(tree1, tree2)] = False
+            return False
+
+        if use_direct_association:
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, cached=cached)
+            if simplify:
+                res = CCNF.simplify_ccnf(phi, cached=cached)
+                CCNF.conjunction_cache[(tree1, tree2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(tree1, tree2)] = phi
+                return phi
+        else:
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+            if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(tree1, tree2)] = False
+                return False
+            if conj_neg is True and conj_pos is True:
+                CCNF.conjunction_cache[(tree1, tree2)] = conj_abs
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
+            if simplify:
+                res = CCNF.simplify_ccnf(phi, cached=cached)
+                CCNF.conjunction_cache[(tree1, tree2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(tree1, tree2)] = phi
+                return phi
 
     def disjunction(tree1: Tuple | bool, tree2: Tuple | bool,
                     cached: bool, simplify = False, parallel = False) -> Tuple | bool:
@@ -325,7 +449,7 @@ class CCNF:
             #print("Versión paralelizada de disyunction")
             return CCNF.disjunction_parallel(tree1, tree2, simplify)
         else:
-            return CCNF.disjunction_serial(tree1, tree2, cached, simplify)
+            return CCNF.disjunction_serial_manual(tree1, tree2, cached, simplify)
 
     def disjunction_parallel(tree1: Tuple | bool, tree2: Tuple | bool,
                              simplify = False) -> Tuple | bool:
@@ -411,6 +535,7 @@ class CCNF:
         else:
             return phi
 
+    @lru_cache(maxsize=None)
     def disjunction_serial(tree1: Tuple | bool, tree2: Tuple | bool,
                     cached: bool, simplify = False) -> Tuple | bool:
         """
@@ -472,6 +597,89 @@ class CCNF:
             return CCNF.simplify_ccnf(phi, cached=cached)
         else:
             return phi
+
+    
+    disjunction_cache = {}
+
+    def disjunction_serial_manual(tree1: Tuple | bool, tree2: Tuple | bool,
+                    cached: bool, simplify = False) -> Tuple | bool:
+        """
+        Returns the disjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (false is the neutral element of disjunction)
+        if tree1 is False: return tree2
+        if tree2 is False: return tree1
+
+        # Domination (true is the dominant element of disjunction)
+        if tree1 is True or tree2 is True:
+            return True
+
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        res = CCNF.disjunction_cache.get((tree1, tree2))
+        if res is not None:
+            return res
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            phi_3_ = CCNF.disjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            if phi_3_ is False:
+                CCNF.disjunction_cache[(tree1, tree2)] = False
+                return False
+            
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], simplify=simplify, cached=cached)
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], simplify=simplify, cached=cached)
+            
+            phi_12_ = CCNF.disjunction_serial(tree1[1], phi_11_, simplify=simplify, cached=cached)
+            phi_13_ = CCNF.disjunction_serial(tree1[3], tree2[1], simplify=simplify, cached=cached)
+            phi_22_ = CCNF.disjunction_serial(tree1[2], phi_21_, simplify=simplify, cached=cached)
+            phi_23_ = CCNF.disjunction_serial(tree1[3], tree2[2], simplify=simplify, cached=cached)
+
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, simplify=simplify, cached=cached)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, simplify=simplify, cached=cached)
+            if phi_14_ is False and phi_24_ is False:
+                CCNF.disjunction_cache[(tree1, tree2)] = False
+                return False
+            if phi_14_ is True and phi_24_ is True:
+                CCNF.disjunction_cache[(tree1, tree2)] = phi_3_
+                return phi_3_ # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, cached=cached)
+            if simplify:
+                res = CCNF.simplify_ccnf(phi, cached=cached)
+                CCNF.disjunction_cache[(tree1, tree2)] = res
+                return res
+            else:
+                CCNF.disjunction_cache[(tree1, tree2)] = phi
+                return phi
+            
+        # tree1[0] > tree2[0]
+        disj_abs = CCNF.disjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        if disj_abs is False:
+            CCNF.disjunction_cache[(tree1, tree2)] = False
+            return False
+        disj_neg = CCNF.disjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
+        disj_pos = CCNF.disjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+        if disj_neg is False and disj_pos is False:
+            CCNF.disjunction_cache[(tree1, tree2)] = False
+            return False
+        if disj_neg is True and disj_pos is True:
+            CCNF.disjunction_cache[(tree1, tree2)] = disj_abs
+            return disj_abs # Ya sea True o Tuple
+        
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, cached=cached)
+        if simplify:
+            res = CCNF.simplify_ccnf(phi, cached=cached)
+            CCNF.disjunction_cache[(tree1, tree2)] = res
+            return res
+        else:
+            CCNF.disjunction_cache[(tree1, tree2)] = phi
+            return phi
+
 
     def simplify_ccnf(tree: Tuple | bool, cached: bool, iterative = True) -> Tuple | bool:
         if iterative:
@@ -798,10 +1006,13 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None |
             for j in range(len(clauses[i])):
                 lit = clauses[i][j]
                 assert lit != 0, "Ningún literal debería ser 0 !!!"
+                # Break Precondition: tautological variables and clauses removed, so v is not several times in a clause, nor v and -v at the same time
                 if lit == v:
                     polarities[0].append([i,j])
+                    break
                 elif lit == -v:
                     polarities[1].append([i,j])
+                    break
         
         if len(polarities[0]) == 0:
             positions = polarities[1]
