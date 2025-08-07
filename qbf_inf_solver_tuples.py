@@ -52,31 +52,40 @@ def _rename_variables(quantifiers: List[QBlock], clauses: CNF_Formula) -> None:
     """
     new = 1
     old2new = {}
+    varset = set()
     for (i, (_, vars)) in enumerate(quantifiers):
         for j, v in enumerate(vars):
-            quantifiers[i][1][j] = new
-            old2new[v] = new
+            assert v not in varset, f"La variable {v} está cuantificada más de una vez!"
+            varset.add(v)
+            
+            if quantifiers[i][1][j] != new:
+                quantifiers[i][1][j] = new
+                old2new[v] = new
             new += 1
     
+    if not old2new:
+        return
+
     for i, clause in enumerate(clauses):
         for j, lit in enumerate(clause):
-            if lit > 0:
-                clauses[i][j] = old2new[lit]
-            else:
-                clauses[i][j] = -old2new[-lit]
+            new = old2new.get(abs(lit))
+            if new is not None:
+                if lit > 0:
+                    clauses[i][j] = new
+                else:
+                    clauses[i][j] = -new
 
 DB_Max_v = None
 DB_Total_nodes = None
 DB_Nodes = None
 DB_Size = None
 
-def _eliminate_variables(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool,
-                       eliminate_first = True, debugging = False, iterative = True) -> bool:
-    if iterative:
-        return _eliminate_variables_it(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
-    return _eliminate_variables_rec(quantifiers, ccnf, eliminate_first=eliminate_first, debugging=debugging, cached=cached)
+def _eliminate_variables(quantifiers: List[QBlock], ccnf: Union[Tuple, bool], config: Dict[str, bool]) -> bool:
+    if config['iterative']:
+        return _eliminate_variables_it(quantifiers, ccnf, config)
+    return _eliminate_variables_rec(quantifiers, ccnf, config)
 
-def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Union[Tuple, bool], config: Dict[str, bool]) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
@@ -99,54 +108,56 @@ def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cach
         quantifiers.pop()
 
     # Imprimimos la información antes de simplificar la fórmula
+    debugging = config['debugging']
     #set_trace()
     #"""
-    max_v = ccnf[0]
-    depth = CCNF.depth(ccnf)
-    nodes = CCNF.nodes(ccnf)
-    nodes_no_repetition = CCNF.nodes_no_repetition(ccnf)
-    total_nodes = CCNF.num_nodes_created()
-    size = CCNF.size(ccnf)
-
     if debugging:
-        print("-" * 50)
-        print(f"Max_v = {max_v}")
-        print(f"Depth = {depth}")
-        #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
-        print(f"Actual_nodes               = {nodes}")
-        print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
-        print(f"Total_created_nodes = {total_nodes}")
-        print(f"Size = {size}")
-        #objgraph.show_most_common_types()
-        print(" " * 50, flush=True)
+        max_v = ccnf[0]
+        depth = CCNF.depth(ccnf)
+        nodes = CCNF.nodes(ccnf)
+        nodes_no_repetition = CCNF.nodes_no_repetition(ccnf)
+        total_nodes = CCNF.num_nodes_created()
+        size = CCNF.size(ccnf)
 
-    global DB_Max_v
-    global DB_Total_nodes
-    global DB_Nodes
-    global DB_Size
+        if debugging:
+            print("-" * 50)
+            print(f"Max_v = {max_v}")
+            print(f"Depth = {depth}")
+            #print(f"Max_nodes = {CCNF.max_nodes(ccnf)}")
+            print(f"Actual_nodes               = {nodes}")
+            print(f"Actual_nodes_no_repetition = {nodes_no_repetition}")
+            print(f"Total_created_nodes = {total_nodes}")
+            print(f"Size = {size}")
+            #objgraph.show_most_common_types()
+            print(" " * 50, flush=True)
 
-    assert DB_Max_v is None or max_v < DB_Max_v, "No se ha eliminado una variable!!!"
-    if debugging and (DB_Max_v is not None and DB_Max_v - max_v != 1):
-        print("Several variables have been removed at once!")
-    DB_Max_v = max_v
+        global DB_Max_v
+        global DB_Total_nodes
+        global DB_Nodes
+        global DB_Size
 
-    assert depth <= max_v + 1, "La profundidad supera el límite de la variable máxima!!!"
-    
-    assert nodes_no_repetition <= total_nodes, "Cómo tiene más nodos de los que se han creado?!"
-    assert DB_Total_nodes is None or total_nodes >= DB_Total_nodes, "Cómo se han creado menos nodos que los que habían antes???"
-    DB_Total_nodes = total_nodes
+        assert DB_Max_v is None or max_v < DB_Max_v, "No se ha eliminado una variable!!!"
+        if debugging and (DB_Max_v is not None and DB_Max_v - max_v != 1):
+            print("Several variables have been removed at once!")
+        DB_Max_v = max_v
 
-    # Too strong assert, little variations might happen
-    cond = (DB_Nodes is None and DB_Size is None) or \
-        (nodes_no_repetition >= DB_Nodes and size >= DB_Size) or \
-        (nodes_no_repetition < DB_Nodes and size < DB_Size)
-    #assert cond, "El cambio en la cantidad de nodos no coincide con el cambio en el tamaño del árbol CCNF"
-    if debugging and (not cond):
-        print(f"Ligera fluctuación en size: Nodos[{DB_Nodes} -> {nodes_no_repetition}] vs Size[{DB_Size} -> {size}]")
-    DB_Nodes = nodes_no_repetition
-    DB_Size = size
-    if debugging:
-        print(" " * 50, flush=True)
+        assert depth <= max_v + 1, "La profundidad supera el límite de la variable máxima!!!"
+        
+        assert nodes_no_repetition <= total_nodes, "Cómo tiene más nodos de los que se han creado?!"
+        assert DB_Total_nodes is None or total_nodes >= DB_Total_nodes, "Cómo se han creado menos nodos que los que habían antes???"
+        DB_Total_nodes = total_nodes
+
+        # Too strong assert, little variations might happen
+        cond = (DB_Nodes is None and DB_Size is None) or \
+            (nodes_no_repetition >= DB_Nodes and size >= DB_Size) or \
+            (nodes_no_repetition < DB_Nodes and size < DB_Size)
+        #assert cond, "El cambio en la cantidad de nodos no coincide con el cambio en el tamaño del árbol CCNF"
+        if debugging and (not cond):
+            print(f"Ligera fluctuación en size: Nodos[{DB_Nodes} -> {nodes_no_repetition}] vs Size[{DB_Size} -> {size}]")
+        DB_Nodes = nodes_no_repetition
+        DB_Size = size
+        if debugging:
+            print(" " * 50, flush=True)
     #"""
 
     # Simplificamos la fórmula
@@ -155,37 +166,37 @@ def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Tuple | bool, cach
         if debugging:
             print("Eliminating universal...")
             print("Primera conjunción...")
-        psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True, cached=cached)
+        psi = CCNF.conjunction(ccnf[1], ccnf[2], config)
         if debugging: print("Segunda conjunción...")
-        psi = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
+        psi = CCNF.conjunction(psi, ccnf[3], config)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
         if debugging: print("Eliminating existential...")
-        if eliminate_first:
+        if config['elim_e_disj_conj']:
             if debugging: print("Disyunción...")
-            psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
+            psi = CCNF.disjunction(ccnf[2], ccnf[1], config)
             if debugging: print("Conjunción...")
-            psi = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
+            psi = CCNF.conjunction(psi, ccnf[3], config)
         else:
-            # La versión paralela va peor que la versión en serie
-                # Además, eliminate_first va mucho mejor que esta versión
-                #if debugging: print("Conjunciones (2) en paralelo")
-                #with Pool(processes=2) as pool:
-                #    async_psi1 = pool.apply_async(CCNF.conjunction_serial, (ccnf[2], ccnf[3],), {'simplify': True, 'cached': False})
-                #    async_psi2 = pool.apply_async(CCNF.conjunction_serial, (ccnf[1], ccnf[3],), {'simplify': True, 'cached': False})
-                #    psi1, psi2 = async_psi1.get(), async_psi2.get()
-            if debugging: print("Primera conjunción...")
-            psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True, cached=cached)
-            if debugging: print("Segunda conjunción...")
-            psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True, cached=cached)
-            if debugging: print("Disyunción...")
-            psi = CCNF.disjunction(psi1, psi2, simplify=True, cached=cached)
+            if config['parallel_elim_e_conj2_disj']:
+                if debugging: print("Conjunciones (2) en paralelo")
+                with Pool(processes=2) as pool:
+                    async_psi1 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[2], ccnf[3], config))
+                    async_psi2 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[1], ccnf[3], config))
+                    psi1, psi2 = async_psi1.get(), async_psi2.get()
+            else:
+                if debugging: print("Primera conjunción...")
+                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], config)
+                if debugging: print("Segunda conjunción...")
+                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], config)
+                if debugging: print("Disyunción...")
+                ccnf = CCNF.disjunction(psi1, psi2, config)
     if debugging: print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
     return _eliminate_variables_rec(quantifiers, psi)
 
-def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cached: bool, eliminate_first = True, debugging = False) -> bool:
+def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Union[Tuple, bool], config: Dict[str, bool]) -> bool:
     """
     TODO: microoptimización, una vez testeados las variantes, quedarnos con la más eficiente y quitar los flags y comprobaciones
     """
@@ -207,8 +218,9 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
             quantifiers.pop()
 
         # Imprimimos la información antes de simplificar la fórmula
+        debugging = config['debugging']
         #set_trace()
-        #"""
+        """
         if debugging:
             max_v = ccnf[0]
             depth = CCNF.depth(ccnf)
@@ -256,7 +268,7 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
             DB_Size = size
             if debugging:
                 print(" " * 50, flush=True)
-        #"""
+        """
 
         # Simplificamos la fórmula
         if q == 'a':
@@ -264,32 +276,32 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Tuple | bool, cache
             if debugging:
                 print("Eliminating universal...")
                 print("Primera conjunción...")
-            psi = CCNF.conjunction(ccnf[1], ccnf[2], simplify=True, cached=cached)
+            psi = CCNF.conjunction(ccnf[1], ccnf[2], config)
             if debugging: print("Segunda conjunción...")
-            ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
+            ccnf = CCNF.conjunction(psi, ccnf[3], config)
         else:
             # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
             if debugging: print("Eliminating existential...")
-            if eliminate_first:
+            if config['elim_e_disj_conj']:
                 if debugging: print("Disyunción...")
-                psi = CCNF.disjunction(ccnf[2], ccnf[1], simplify=True, cached=cached)
+                psi = CCNF.disjunction(ccnf[2], ccnf[1], config)
                 if debugging: print("Conjunción...")
                 #set_trace()
-                ccnf = CCNF.conjunction(psi, ccnf[3], simplify=True, cached=cached)
+                ccnf = CCNF.conjunction(psi, ccnf[3], config)
             else:
-                # La versión paralela va peor que la versión en serie
-                # Además, eliminate_first va mucho mejor que esta versión
-                #if debugging: print("Conjunciones (2) en paralelo")
-                #with Pool(processes=2) as pool:
-                #    async_psi1 = pool.apply_async(CCNF.conjunction_serial, (ccnf[2], ccnf[3],), {'simplify': True, 'cached': False})
-                #    async_psi2 = pool.apply_async(CCNF.conjunction_serial, (ccnf[1], ccnf[3],), {'simplify': True, 'cached': False})
-                #    psi1, psi2 = async_psi1.get(), async_psi2.get()
-                if debugging: print("Primera conjunción...")
-                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], simplify=True, cached=cached)
-                if debugging: print("Segunda conjunción...")
-                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], simplify=True, cached=cached)
-                if debugging: print("Disyunción...")
-                ccnf = CCNF.disjunction(psi1, psi2, simplify=True, cached=cached)
+                if config['parallel_elim_e_conj2_disj']:
+                    if debugging: print("Conjunciones (2) en paralelo")
+                    with Pool(processes=2) as pool:
+                        async_psi1 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[2], ccnf[3], config))
+                        async_psi2 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[1], ccnf[3], config))
+                        psi1, psi2 = async_psi1.get(), async_psi2.get()
+                else:
+                    if debugging: print("Primera conjunción...")
+                    psi1 = CCNF.conjunction(ccnf[2], ccnf[3], config)
+                    if debugging: print("Segunda conjunción...")
+                    psi2 = CCNF.conjunction(ccnf[1], ccnf[3], config)
+                    if debugging: print("Disyunción...")
+                    ccnf = CCNF.disjunction(psi1, psi2, config)
         if debugging: print("Eliminated!")
 
 def reset_debugging():
@@ -300,35 +312,29 @@ def reset_debugging():
 
     DB_Max_v = DB_Total_nodes = DB_Nodes = DB_Size = None
 
-def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first = True, check_sat = True,
-               debugging = False) -> bool:
+def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, config: Dict[str, bool]) -> bool:
     """
     Function that receives the result of the parser and applies our QBF solver
     that takes advantage of the Inductive Normal Form.
     """
-    # Sabemos que no hay referencias circulares, por lo que desactivamos el garbage collector generacional
-    # Por supuesto, el garbage collector con el counter de las referencias sigue trabajando
-    gc.disable()
-
     # Si estamos tratando con una instancia de SAT, mejor llamar directamente a un SAT solver optimizado de PySAT
-    if check_sat and len(quantifiers) == 1 and quantifiers[0][0] == 'e':
+    if config['check_sat'] and len(quantifiers) == 1 and quantifiers[0][0] == 'e':
         with Solver(bootstrap_with=clauses) as s:
             return s.solve()
+    
+    if config['disable_gc']:
+        # Sabemos que no hay referencias circulares, por lo que desactivamos el garbage collector generacional
+        # Por supuesto, el garbage collector con el counter de las referencias sigue trabajando
+        gc.disable()
 
     #print('Renaming variables...')
     _rename_variables(quantifiers, clauses)
     #print("Finished renaming!")
-    
-    cached = False
 
     #print('Compactifying formula...')
     #t0 = time()
     # But it doesn't seem to improve so much to put compactify with simplify...
-    ccnf = compactify(clauses, quantifiers,
-                      cached=cached, absorb_with_prefixes=False, 
-                      simplify_tautologies=True, preprocess=True,
-                      simplify=False, 
-                      check_absorb_with_prefixes=False)
+    ccnf = compactify(clauses, quantifiers, config)
     #t1 = time()
     #print('Compactified!')
     #print(f"Time: {t1 - t0 : .4f} s")
@@ -336,8 +342,7 @@ def inf_solver(quantifiers: List[QBlock], clauses: CNF_Formula, eliminate_first 
     #print("Eliminating variables...")
     #gc.set_debug(gc.DEBUG_STATS | gc.DEBUG_COLLECTABLE | gc.DEBUG_UNCOLLECTABLE)
     #gc.set_debug(0)
-    res = _eliminate_variables(quantifiers, ccnf, eliminate_first=True, cached=cached,
-                               debugging=debugging)
+    res = _eliminate_variables(quantifiers, ccnf, config)
     #print("Eliminated!")
 
     return res
@@ -940,6 +945,79 @@ def test_problematic_integration():
         reset_debugging()
 
 if __name__ == '__main__':
+
+    config = {
+        'debugging'                         : False,    # No es una variante a experimentar. A False para no printear innecesariamente
+        'pre_simplify_tautologies'          : True,     # Hacerlo siempre
+        'iterative'                         : True,     # Hacerlo siempre (eliminate_variables y simplify)
+
+        'conjunction_direct_association'    : False,
+        
+        'elim_e_disj_conj'                  : False,
+        'parallel_elim_e_conj2_disj'        : False,    # Solo testearlo si elim_e_disj_conj es menos eficiente (no esperable)
+        
+        'simplify'                          : False,    # Afecta a compactify, conjunction y disjunction
+        
+        'preprocessor'                      : False,
+        
+        'cached_nodes'                      : False,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
+        'equals_with_is'                    : True,     # Solo si cached is True
+        
+        'absorb_with_prefixes'              : False,
+        'disable_gc'                        : False,
+        'check_sat'                         : False,
+    
+        'conjunction_parallel'              : False,
+        'conjunction_parallel_lazy'         : True,     # Solo aplicable si conjunction_parallel is True
+
+        'disjunction_parallel'              : False,
+        'disjunction_parallel_conjs'        : False,    # Solo aplicable si disjunction_parallel is True
+        'disjunction_parallel_disjs'        : False,    # Solo aplicable si disjunction_parallel is True
+        
+        'conjunction_cached_lru'            : False,    # Incompatible con parallel
+        'disjunction_cached_lru'            : False,    # Incompatible con parallel
+        
+        'conjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
+        'disjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
+
+        'version_cached'                    : False,
+        'version_cached_cleanup'            : None,     # Estos solo son posibles de realizar si version_cached is True
+        'version_cached_memo_lru'           : None,     # nocleanup OBLIGATORIAMENTE
+        'version_cached_memo_dicts'         : None,    # Este podemos combinarlo con cleanup y nocleanup
+    }
+
+    assert not config['debugging'], "Incorrect configuration! [1]"
+    assert config['pre_simplify_tautologies'], "Incorrect configuration! [2]"
+    assert config['iterative'], "Incorrect configuration! [3]" 
+    assert not config['elim_e_disj_conj'] or not config['parallel_elim_e_conj2_disj'], "Incorrect configuration [4]"
+    assert config['cached_nodes'] or not config['equals_with_is'], "Incorrect configuration! [5]"
+    assert not config['equals_with_is'] or not config['conjunction_parallel'], "Incorrect configuration! [6]"
+    assert not config['equals_with_is'] or not config['disjunction_parallel'], "Incorrect configuration! [7]"
+    assert not config['disjunction_parallel'] or (config['disjunction_parallel_conjs'] or config['disjunction_parallel_disjs']), "Incorrect configuration! [8]"
+    # Estos assert son innecesarios. Si _parallel está activo, se hará la llamada a dicha versión.
+    # Eso sí, dentro de él, creará subprocesos con la función _serial_wrapper. Es decir, 
+    # podemos decidir si en el subproceso usar memoización o no.
+    #assert not config['conjunction_parallel'] or not config['conjunction_cached_lru'], "Incorrect configuration! [9]"
+    #assert not config['conjunction_parallel'] or not config['conjunction_cached_dicts'], "Incorrect configuration! [10]"
+    #assert not config['disjunction_parallel'] or not config['disjunction_cached_lru'], "Incorrect configuration! [11]"
+    #assert not config['disjunction_parallel'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [12]"
+    assert not config['conjunction_cached_lru'] or not config['conjunction_cached_dicts'], "Incorrect configuration! [13]"
+    assert not config['disjunction_cached_lru'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [14]"
+    assert not config['version_cached'], "Incorrect script (this is tuples) for set value cached version! [15]"
+    
+    #"""
+    if len(sys.argv) != 2:
+        print("ERROR: usage --> python3 qbf_inf_solver_tuples.py <name_instance in QDIMACS>", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
+    
+    sys.setrecursionlimit(4000)
+
+    file_path = sys.argv[1]
+    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
+    print('SAT' if inf_solver(quantifiers, clauses, config) else 'UNSAT')
+    #"""
+
     #test_renaming()
     #test_inf_solver()
     #test_inf_with_difficult_instances()
@@ -951,6 +1029,6 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    test_integration()
+    #test_integration()
     #test_problematic_integration()
-    pass
+    #pass

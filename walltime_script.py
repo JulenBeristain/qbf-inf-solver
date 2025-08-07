@@ -1,6 +1,6 @@
 import subprocess
 import os
-import psutil
+#import psutil
 import time
 import csv
 import copy
@@ -177,146 +177,43 @@ RESULTS = {
     '99.lights3_021_0_009.qdimacs': True,
 }
 
-
-def get_instance_info(instance_path: str) -> Dict:
-    """
-    * número de variables, número de cláusulas, 
-    * tamaños de cláusulas media, minima, maxima, mediana, standard deviation, 
-    * número de bloques de cuantificadores
-    """
-    nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(instance_path)
-
-    # nv, nc can be incorrect in the header
-    nc = len(clauses)
-
-    vars_in_clauses = set()
-    for clause in clauses:
-        for literal in clause:
-            vars_in_clauses.add(abs(literal))
-    vars_quantified = set()
-    for _, vars in quantifiers:
-        for var in vars:
-            vars_quantified.add(var)
-        
-    exceptions = [
-        '135.s1269_d2_s.qdimacs', # Only e 74 0, with none of the rest 73 vars quantified --> Interpreted as SAT instance, all existential
-    ]
-    instance_name = os.path.basename(instance_path)
-    ignore = instance_name in exceptions
-    assert ignore or not (vars_in_clauses - vars_quantified), "There is some variable(s) that are not quantified!!!"
-    nv = len(vars_in_clauses)
-
-    # Tamaño de cláusulas
-    if nc == 0:
-        mean = min_ = max_ = median = std_dev = 0
-    else:
-        lengths = list(map(len, clauses))
-        mean = statistics.mean(lengths)
-        min_ = min(lengths)
-        max_ = max(lengths)
-        median = statistics.median(lengths)
-        std_dev = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
-
-    # Número de bloques de cuantificadores
-    nb = len(quantifiers)
-
-    return {
-        'Variables': nv,
-        'Clauses': nc,
-        'Clause_SZ_Mean': mean,
-        'Clause_SZ_Min': min_,
-        'Clause_SZ_Max': max_,
-        'Clause_SZ_Median': median,
-        'Clause_SZ_StdDev': std_dev,
-        'QBlocks': nb,
-    }
-
-
 def run_solver(solver_path, instance_path, timeout_seconds, python=False):
     """
-    Runs a QBF solver on an instance and collects metrics.
-    Returns a dictionary with results.
+    Runs a QBF solver on an instance and collects the spent wall time.
     """
     command = [solver_path, instance_path]
     if python:
         command = ['python3'] + command
 
-    process = None
-    peak_memory_mb = 0
-    cpu_time_user = 0
-    cpu_time_system = 0
     exit_status = "UNKNOWN"
     solver_output = "TIMEOUT" # To store stdout/stderr for debugging if needed
     start_time_wall = time.time()
 
     try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True  # Decode stdout/stderr as text
-        )
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds, check=False)
+        total_time_wall = time.time() - start_time_wall
         
-        while process.poll() is None and (time.time() - start_time_wall) < timeout_seconds:
-            try:
-                p = psutil.Process(process.pid)
-                # Check current memory usage of the process and its children
-                mem_info = p.memory_info()
-                current_rss_mb = mem_info.rss / (1024 * 1024)
-                peak_memory_mb = max(peak_memory_mb, current_rss_mb)
-
-                # Get CPU times - cumulative for the process and its children
-                cpu_times = p.cpu_times()
-                cpu_time_user = cpu_times.user + cpu_times.children_user
-                cpu_time_system = cpu_times.system + cpu_times.children_system
-                
-                time.sleep(0.1) # Poll every 100ms
-            except psutil.NoSuchProcess:
-                # Process might have just finished
-                break
-         
-        # If the process is still running after the loop (due to timeout)
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5) # Give it a little time to terminate
-            except subprocess.TimeoutExpired:
-                process.kill() # Force kill if it doesn't terminate
-            exit_status = "TIMEOUT"
-            total_time_wall = 2 * timeout_seconds # Penalty for timeout /
-            cpu_time_user = timeout_seconds # Penalty for timeout       |
-            cpu_time_system = timeout_seconds # Penalty for timeout     \ total_cpu_time = 2*timeout
+        solver_output = result.stdout.strip() #+ result.stderr.strip()
+        assert solver_output == 'SAT' or solver_output == 'UNSAT', f"La salida del solver no es SAT o UNSAT, sino: -{solver_output}-"
+    
+        instance = os.path.basename(instance_path)
+        if solver_output == 'SAT' and RESULTS[instance] is True:
+            exit_status = 'CORRECT'
+        elif solver_output == 'UNSAT' and RESULTS[instance] is False:
+            exit_status = 'CORRECT'
+        elif RESULTS[instance] == 'TIMEOUT':
+            exit_status = "EUREKA!"
         else:
-            total_time_wall = time.time() - start_time_wall
-            stdout, stderr = process.communicate()
-            solver_output = stdout.strip() # + stderr
-            assert solver_output == 'SAT' or solver_output == 'UNSAT', f"La salida del solver no es SAT o UNSAT, sino: -{solver_output}-"
-            
-            instance = os.path.basename(instance_path)
-            if solver_output == 'SAT' and RESULTS[instance] is True:
-                exit_status = 'CORRECT'
-            elif solver_output == 'UNSAT' and RESULTS[instance] is False:
-                exit_status = 'CORRECT'
-            elif RESULTS[instance] == 'TIMEOUT':
-                exit_status = "EUREKA!"
-            else:
-                exit_status = 'INCORRECT'
-            
-            # Get final CPU and memory usage after process finishes
-            try:
-                p = psutil.Process(process.pid)
-                mem_info = p.memory_info()
-                current_rss_mb = mem_info.rss / (1024 * 1024)
-                peak_memory_mb = max(peak_memory_mb, current_rss_mb) # One last check
-                
-                cpu_times = p.cpu_times()
-                cpu_time_user = cpu_times.user + cpu_times.children_user
-                cpu_time_system = cpu_times.system + cpu_times.children_system
+            exit_status = 'INCORRECT'
 
-            except psutil.NoSuchProcess:
-                # Process might be gone if it finished just before final check
-                pass
-
+    except subprocess.TimeoutExpired as e:
+        exit_status = "TIMEOUT"
+        total_time_wall = 2 * timeout_seconds # Penalty for timeout
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Subprocess failed with error: {e}", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(3)
     except FileNotFoundError:
         exit_status = "SOLVER_NOT_FOUND"
         print(exit_status, file=sys.stderr)
@@ -328,18 +225,12 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
         sys.stderr.flush()
         set_trace()
         sys.exit(2)
-
-    total_cpu_time = cpu_time_user + cpu_time_system
     
     execution_info = {
         "instance": os.path.basename(instance_path),
         "solver_output": solver_output,
         "status": exit_status,
         "total_wall_time": round(total_time_wall, 3),
-        #"cpu_time_user": round(cpu_time_user, 3),
-        #"cpu_time_system": round(cpu_time_system, 3),
-        "total_cpu_time": round(total_cpu_time, 3),
-        "peak_memory_mb": round(peak_memory_mb, 2),
     }
     return execution_info
 
@@ -348,10 +239,9 @@ if __name__ == "__main__":
     # Indicar aquí el solver
     solver_name, solver_path, python = "DepQBF", "depqbf", False
     #solver_name, solver_path, python = "Naive", "/home/julen/TFG/qbf_naive_solver.py", True
+    #solver_name, solver_path, python = "NaivePre", "/home/julen/TFG/qbf_naive_solver_pre.py", True
     #solver_name, solver_path, python = "FNI", "home/julen/TFG/qbf_inf_final.py", True
     
-    # TODO: para iterative_experimentation usar los resultados del naive_solver para filtrar las instancias interesantes
-    #       excluirlas aquellas que incluso el naive resuelve con facilidad.
     instance_dir = "/home/julen/integration_tests"
     instances = [os.path.join(instance_dir, f) for f in os.listdir(instance_dir)]
     
@@ -375,27 +265,22 @@ if __name__ == "__main__":
                 remaining_tries = num_executions_per_instace - len(instance_results)
                 instance_results.extend( result for _ in range(remaining_tries) )
                 break
-
-            #print(f"    Status: {result['status']}, CPU Time: {result['total_cpu_time']}s, Peak Mem: {result['peak_memory_mb']}MB")
-        
+                
         aggregate = copy.deepcopy(result)
         aggregate['total_wall_time'] = sum(r['total_wall_time'] for r in instance_results) / len(instance_results)
-        aggregate['total_cpu_time'] = sum(r['total_cpu_time'] for r in instance_results) / len(instance_results)
-        aggregate['peak_memory_mb'] = sum(r['peak_memory_mb'] for r in instance_results) / len(instance_results)
-        instance_info = get_instance_info(instance_path)
-        all_results.append(aggregate | instance_info)
+        all_results.append(aggregate)
         
-        print(f"    Status: {aggregate['status']}, Wall Time: {aggregate['total_wall_time']}, CPU Time: {aggregate['total_cpu_time']}s, Peak Mem: {aggregate['peak_memory_mb']}MB")
+        print(f"    Status: {aggregate['status']}, Wall Time: {aggregate['total_wall_time']}")
 
     # Save results to a CSV file
-    output_csv_file = f"{solver_name}_benchmark_results.csv"
+    output_csv_file = f"{solver_name}_walltime_results.csv"
     if all_results:
         keys = all_results[0].keys()
         with open(output_csv_file, 'w', newline='') as output_file:
             dict_writer = csv.DictWriter(output_file, fieldnames=keys)
             dict_writer.writeheader()
             dict_writer.writerows(all_results)
-        print(f"\nBenchmark results saved to {output_csv_file}")
+        print(f"Walltime results saved to {output_csv_file}")
 
     # Agregado único por cada solver de todos los datos
     num_instances = len(instances)
@@ -419,16 +304,6 @@ if __name__ == "__main__":
     else:
         wall_time_correct_mean = wall_time_correct_min = wall_time_correct_max = wall_time_correct_median = wall_time_correct_std_dev = 'None'
 
-    cpu_time_correct = [res['total_cpu_time'] for res in all_results if res['status'] == 'CORRECT']
-    if cpu_time_correct:
-        cpu_time_correct_mean = statistics.mean(cpu_time_correct)
-        cpu_time_correct_min = min(cpu_time_correct)
-        cpu_time_correct_max = max(cpu_time_correct)
-        cpu_time_correct_median = statistics.median(cpu_time_correct)
-        cpu_time_correct_std_dev = statistics.stdev(cpu_time_correct) if len(cpu_time_correct) > 1 else 0.0
-    else:
-        cpu_time_correct_mean = cpu_time_correct_min = cpu_time_correct_max = cpu_time_correct_median = cpu_time_correct_std_dev = 'None'
-
     wall_time_penalized = [res['total_wall_time'] for res in all_results if res['status'] != 'INCORRECT']
     if wall_time_penalized:
         wall_time_penalized_mean = statistics.mean(wall_time_penalized)
@@ -438,26 +313,6 @@ if __name__ == "__main__":
         wall_time_penalized_std_dev = statistics.stdev(wall_time_penalized) if len(wall_time_penalized) > 1 else 0.0
     else:
         wall_time_penalized_mean = wall_time_penalized_min = wall_time_penalized_max = wall_time_penalized_median = wall_time_penalized_std_dev = 'None'
-
-    cpu_time_penalized = [res['total_cpu_time'] for res in all_results if res['status'] != 'INCORRECT']
-    if cpu_time_penalized:
-        cpu_time_penalized_mean = statistics.mean(cpu_time_penalized)
-        cpu_time_penalized_min = min(cpu_time_penalized)
-        cpu_time_penalized_max = max(cpu_time_penalized)
-        cpu_time_penalized_median = statistics.median(cpu_time_penalized)
-        cpu_time_penalized_std_dev = statistics.stdev(cpu_time_penalized) if len(cpu_time_penalized) > 1 else 0.0
-    else:
-        cpu_time_penalized_mean = cpu_time_penalized_min = cpu_time_penalized_max = cpu_time_penalized_median = cpu_time_penalized_std_dev = 'None'
-
-    memory_usage = [res['peak_memory_mb'] for res in all_results if res['status'] != 'INCORRECT']
-    if memory_usage:
-        memory_mean = statistics.mean(memory_usage)
-        memory_min = min(memory_usage)
-        memory_max = max(memory_usage)
-        memory_median = statistics.median(memory_usage)
-        memory_std_dev = statistics.stdev(memory_usage) if len(memory_usage) > 1 else 0.0
-    else:
-        memory_mean = memory_min = memory_max = memory_median = memory_std_dev = 'None'
 
     aggregate_data = {
         'solver_name': solver_name,
@@ -479,29 +334,12 @@ if __name__ == "__main__":
         'wall_time_penalized_s_max':     wall_time_penalized_max,
         'wall_time_penalized_s_median':  wall_time_penalized_median,
         'wall_time_penalized_s_std_dev': wall_time_penalized_std_dev,
-
-        'cpu_time_correct_s_mean':      cpu_time_correct_mean,
-        'cpu_time_correct_s_min':       cpu_time_correct_min,
-        'cpu_time_correct_s_max':       cpu_time_correct_max,
-        'cpu_time_correct_s_median':    cpu_time_correct_median,
-        'cpu_time_correct_s_std_dev':   cpu_time_correct_std_dev,
-        'cpu_time_penalized_s_mean':    cpu_time_penalized_mean,
-        'cpu_time_penalized_s_min':     cpu_time_penalized_min,
-        'cpu_time_penalized_s_max':     cpu_time_penalized_max,
-        'cpu_time_penalized_s_median':  cpu_time_penalized_median,
-        'cpu_time_penalized_s_std_dev': cpu_time_penalized_std_dev,
-        
-        'memory_peak_mb_mean': memory_mean,
-        'memory_peak_mb_min': memory_min,
-        'memory_peak_mb_max': memory_max,
-        'memory_peak_mb_median': memory_median,
-        'memory_peak_mb_std_dev': memory_std_dev,
     }
 
-    aggregate_csv_file = f"{solver_name}_benchmark_aggregate.csv"
+    aggregate_csv_file = f"{solver_name}_walltime_aggregate.csv"
     keys = aggregate_data.keys()
     with open(aggregate_csv_file, 'w', newline='') as output_file:
         dict_writer = csv.DictWriter(output_file, fieldnames=keys)
         dict_writer.writeheader()
         dict_writer.writerow(aggregate_data)
-    print(f"\nBenchmark aggregate results saved to {aggregate_csv_file}")
+    print(f"Walltime aggregate results saved to {aggregate_csv_file}")

@@ -7,7 +7,7 @@ from copy import deepcopy
 from types_qbf import *
 from qbf_parser import read_qdimacs_from_file_unchecked
 #from memory import get_total_size
-from sys import getsizeof
+import sys
 from functools import lru_cache
 from multiprocessing import Pool
 from os import cpu_count
@@ -36,13 +36,13 @@ class CCNF:
         CCNF._created = 0
     ###################################
 
-    def create_node(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool, cached = False) -> Tuple:
-        if cached:
+    def create_node(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tuple, bool], absTree: Union[Tuple, bool], config: Dict[str, bool]) -> Tuple:
+        if config['cached_nodes']:
             return CCNF.create_node_cached(v, negTree, posTree, absTree)
         else:
             return CCNF.create_node_uncached(v, negTree, posTree, absTree)
 
-    def create_node_uncached(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool) -> Tuple:
+    def create_node_uncached(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tuple, bool], absTree: Union[Tuple, bool]) -> Tuple:
         """
         TODO: microoptimización dejar de usar esta función y llamar directamente al constructor de tuplas
         """
@@ -75,7 +75,7 @@ class CCNF:
     """
 
     @lru_cache(maxsize=None)
-    def create_node_cached(v: PositiveInt, negTree: Tuple | bool, posTree: Tuple | bool, absTree: Tuple | bool) -> Tuple:
+    def create_node_cached(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tuple, bool], absTree: Union[Tuple, bool]) -> Tuple:
         """
         """
         CCNF._created += 1
@@ -89,7 +89,7 @@ class CCNF:
 
         return (v, negTree, posTree, absTree)
 
-    def pretty_print(tree: Tuple | bool, prefix="", child_label="Root"):
+    def pretty_print(tree: Union[Tuple, bool], prefix="", child_label="Root"):
         if tree is True or tree is False:
             print(f"{prefix}[{child_label}] - {tree}")
             return
@@ -102,11 +102,11 @@ class CCNF:
         CCNF.pretty_print(pos, child_prefix, "+")
         CCNF.pretty_print(abs, child_prefix, "0")
 
-    def equals(tree1: Tuple | bool, tree2: Tuple | bool, cached = False) -> bool:
+    def equals(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> bool:
         """
         TODO: A mirooptmization would to be delete this function altogether.
         """
-        if cached:
+        if config['equals_with_is']: 
             return tree1 is tree2
         return tree1 == tree2
 
@@ -114,19 +114,20 @@ class CCNF:
     # BOOLEAN OPERATIONS
     #######################
 
-    def conjunction(tree1: Tuple | bool, tree2: Tuple | bool, 
-                    cached: bool,
-                    use_direct_association = True,
-                    simplify = False,
-                    parallel = False) -> Tuple | bool:
-        if parallel and 3 < cpu_count():
-            return CCNF.conjunction_parallel(tree1, tree2, use_direct_association=use_direct_association, simplify=simplify)
+    def conjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        if config['conjunction_parallel']:
+            return CCNF.conjunction_parallel(tree1, tree2, config)
         else:
-            return CCNF.conjunction_serial_manual(tree1, tree2, cached=cached, use_direct_association=use_direct_association, simplify=simplify)
+            return CCNF.conjunction_serial_wrapper(tree1, tree2, config)
 
-    def conjunction_parallel(tree1: Tuple | bool, tree2: Tuple | bool,
-                    use_direct_association = True,
-                    simplify = False) -> Tuple | bool:
+    def conjunction_serial_wrapper(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        if config['conjunction_cached_lru']:
+            return CCNF.conjunction_serial(tree1, tree2, config)
+        if config['conjunction_cached_dicts']:
+            return CCNF.conjunction_serial_manual(tree1, tree2, config)
+        return CCNF.conjunction_serial_basic(tree1, tree2, config)
+
+    def conjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         ## Base cases
         # Identity (true is the neutral element of conjunction)
         if tree1 is True: return tree2
@@ -139,59 +140,56 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            #pool = Pool(processes=3)
-            #async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2[3], ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2[1], ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2[2], ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #pool.close()
-            #
-            ## Note: main problem with the parallel approach: we lost lazyness with the checks for False/True
-            ##       As it is now, the serial version is much more efficient
-            #
-            #pool.join()
-            #conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
-            #if conj_abs is False:
-            #    return False
-            #if conj_neg is False and conj_pos is False:
-            #    return False
-            #if conj_neg is True and conj_pos is True:
-            #    return conj_abs # True o 
-            
-            # Note: this version where we try to include lazyness is as efficient as the first version; i.e., 
-            #   less efficient than the serial version.
-            pool = ProcessPoolExecutor(max_workers=3)
-            futures = [ pool.submit(CCNF.conjunction_serial, tree1[i], tree2[i], {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, }) for i in range(1,4) ]
-            
-            results = [None] * 3
-            for f in as_completed(futures):
-                if f is futures[0]: results[0] = f.result()
-                elif f is futures[1]: results[1] = f.result()
-                elif f is futures[2]: results[2] = f.result()
-                else:
-                    print("UNKNOWN FUTURE!!!")
-                    exit()
+            if not config['conjunction_parallel_lazy']:
+                pool = Pool(processes=3)
+                async_abs = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[3], tree2[3], config))
+                async_neg = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[1], tree2[1], config))
+                async_pos = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[2], tree2[2], config))
+                pool.close()
                 
-                if results[2] is False:
-                    for i, fut in enumerate(futures):
-                        if results[i] is None: fut.cancel()
-                    #pool.shutdown(wait=False, cancel_futures=True)
+                # Note: main problem with the parallel approach: we lost lazyness with the checks for False/True
+                #       As it is now, the serial version is much more efficient
+                
+                pool.join()
+                conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+                if conj_abs is False:
                     return False
-                if results[0] is False and results[1] is False:
-                    if results[2] is None: futures[2].cancel()
-                    #pool.shutdown(wait=False, cancel_futures=True)
+                if conj_neg is False and conj_pos is False:
                     return False
-                if results[0] is True and results[1] is True:
-                    if results[2] is None: return futures[2].result()
-                    return results[2]
+                if conj_neg is True and conj_pos is True:
+                    return conj_abs # True o 
+            else:
+                # Note: this version where we try to include lazyness is as efficient as the first version; i.e., 
+                #   less efficient than the serial version.
+                pool = ProcessPoolExecutor(max_workers=3)
+                futures = [ pool.submit(CCNF.conjunction_serial_wrapper, tree1[i], tree2[i], config) for i in range(1,4) ]
+                
+                results = [None] * 3
+                for f in as_completed(futures):
+                    if f is futures[0]: results[0] = f.result()
+                    elif f is futures[1]: results[1] = f.result()
+                    elif f is futures[2]: results[2] = f.result()
+                    else:
+                        print("UNKNOWN FUTURE!!!")
+                        exit()
+                    
+                    if results[2] is False:
+                        for i, fut in enumerate(futures):
+                            if results[i] is None: fut.cancel()
+                        #pool.shutdown(wait=False, cancel_futures=True)
+                        return False
+                    if results[0] is False and results[1] is False:
+                        if results[2] is None: futures[2].cancel()
+                        #pool.shutdown(wait=False, cancel_futures=True)
+                        return False
+                    if results[0] is True and results[1] is True:
+                        if results[2] is None: return futures[2].result()
+                        return results[2]
 
             conj_neg, conj_pos, conj_abs = results
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=False)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
 
@@ -201,76 +199,133 @@ class CCNF:
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
 
-        if use_direct_association:
-            conj_abs = CCNF.conjunction_parallel(tree1[3], tree2, simplify=simplify, 
-                                               use_direct_association=use_direct_association)
+        if config['conjunction_direct_association']:
+            conj_abs = CCNF.conjunction_parallel(tree1[3], tree2, config)
             if conj_abs is False:
                 return False
             
-            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, cached=False)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=False)
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
         
         else:
-            #pool = Pool(processes=3)
-            #async_abs = pool.apply_async(CCNF.conjunction_serial, (tree1[3], tree2, ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #async_neg = pool.apply_async(CCNF.conjunction_serial, (tree1[1], tree2, ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #async_pos = pool.apply_async(CCNF.conjunction_serial, (tree1[2], tree2, ), {'simplify': simplify, 'cached': False,
-            #    'use_direct_association': use_direct_association, })
-            #pool.close()
-            #
-            #pool.join()
-            #conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
-            #if conj_abs is False:
-            #    return False
-            #if conj_neg is False and conj_pos is False:
-            #    return False
-            #if conj_neg is True and conj_pos is True:
-            #    return conj_abs # True o tuple
-            #
-            #phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
-            #if simplify:
-            #    return CCNF.simplify_ccnf(phi, cached=False)
-            #else:
-            #    return phi
+            if not config['conjunction_parallel_lazy']:
+                pool = Pool(processes=3)
+                async_abs = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[3], tree2, config))
+                async_neg = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[1], tree2, config))
+                async_pos = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree1[2], tree2, config))
+                pool.close()
 
-            pool = ProcessPoolExecutor(max_workers=3)
-            futures = [ pool.submit(CCNF.conjunction_serial, tree1[i], tree2, {'simplify': simplify, 'cached': False,
-                'use_direct_association': use_direct_association, }) for i in range(1,4) ]
-            
-            results = [None] * 3
-            for f in as_completed(futures):
-                if f is futures[0]: results[0] = f.result()
-                elif f is futures[1]: results[1] = f.result()
-                elif f is futures[2]: results[2] = f.result()
+                pool.join()
+                conj_abs, conj_neg, conj_pos = async_abs.get(), async_neg.get(), async_pos.get()
+                if conj_abs is False:
+                    return False
+                if conj_neg is False and conj_pos is False:
+                    return False
+                if conj_neg is True and conj_pos is True:
+                    return conj_abs # True o tuple
+
+                phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+                if config['simplify']:
+                    return CCNF.simplify_ccnf(phi, config)
                 else:
-                    print("UNKNOWN FUTURE!!!")
-                    exit()
+                    return phi
+            else:
+                pool = ProcessPoolExecutor(max_workers=3)
+                futures = [ pool.submit(CCNF.conjunction_serial_wrapper, tree1[i], tree2, config) for i in range(1,4) ]
                 
-                if results[2] is False:
-                    for i, fut in enumerate(futures):
-                        if results[i] is None: fut.cancel()
-                    #pool.shutdown(wait=False, cancel_futures=True)
-                    return False
-                if results[0] is False and results[1] is False:
-                    if results[2] is None: futures[2].cancel()
-                    #pool.shutdown(wait=False, cancel_futures=True)
-                    return False
-                if results[0] is True and results[1] is True:
-                    if results[2] is None: return futures[2].result()
-                    return results[2]
+                results = [None] * 3
+                for f in as_completed(futures):
+                    if f is futures[0]: results[0] = f.result()
+                    elif f is futures[1]: results[1] = f.result()
+                    elif f is futures[2]: results[2] = f.result()
+                    else:
+                        print("UNKNOWN FUTURE!!!")
+                        exit()
+                    
+                    if results[2] is False:
+                        for i, fut in enumerate(futures):
+                            if results[i] is None: fut.cancel()
+                        #pool.shutdown(wait=False, cancel_futures=True)
+                        return False
+                    if results[0] is False and results[1] is False:
+                        if results[2] is None: futures[2].cancel()
+                        #pool.shutdown(wait=False, cancel_futures=True)
+                        return False
+                    if results[0] is True and results[1] is True:
+                        if results[2] is None: return futures[2].result()
+                        return results[2]
 
-            conj_neg, conj_pos, conj_abs = results
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=False)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=False)
+                conj_neg, conj_pos, conj_abs = results
+                phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+                if config['simplify']:
+                    return CCNF.simplify_ccnf(phi, config)
+                else:
+                    return phi
+
+
+    def conjunction_serial_basic(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        """
+        Returns the conjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (true is the neutral element of conjunction)
+        if tree1 is True: return tree2
+        if tree2 is True: return tree1
+
+        # Domination (false is the dominant element of conjunction)
+        if tree1 is False or tree2 is False: 
+            return False
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            conj_abs = CCNF.conjunction_serial_basic(tree1[3], tree2[3], config)
+            if conj_abs is False:
+                return False
+            conj_neg = CCNF.conjunction_serial_basic(tree1[1], tree2[1], config)
+            conj_pos = CCNF.conjunction_serial_basic(tree1[2], tree2[2], config)
+            if conj_neg is False and conj_pos is False:
+                return False
+            if conj_neg is True and conj_pos is True:
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
 
+        # Different maximum variables
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        conj_abs = CCNF.conjunction_serial_basic(tree1[3], tree2, config)
+        if conj_abs is False:
+            return False
+
+        if config['conjunction_direct_association']:
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
+            else:
+                return phi
+        else:
+            conj_neg = CCNF.conjunction_serial_basic(tree1[1], tree2, config)
+            conj_pos = CCNF.conjunction_serial_basic(tree1[2], tree2, config)
+            if conj_neg is False and conj_pos is False:
+                return False
+            if conj_neg is True and conj_pos is True:
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
+            else:
+                return phi
 
     """
     Nota: en vez de lru_cache podríamos usar un diccionario creado manualmente que fuera tuple1 x tuple2 -> tuple_res. En este caso,
@@ -292,10 +347,7 @@ class CCNF:
         CCNF.disjunction_cache.clear()
 
     @lru_cache(maxsize=None)
-    def conjunction_serial(tree1: Tuple | bool, tree2: Tuple | bool, 
-                    cached: bool,
-                    use_direct_association = True,
-                    simplify = False) -> Tuple | bool:
+    def conjunction_serial(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the conjunction between two C-CNF formulas.
         """
@@ -311,19 +363,19 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            conj_abs = CCNF.conjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            conj_abs = CCNF.conjunction_serial(tree1[3], tree2[3], config)
             if conj_abs is False:
                 return False
-            conj_neg = CCNF.conjunction_serial(tree1[1], tree2[1], simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction_serial(tree1[2], tree2[2], simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2[1], config)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2[2], config)
             if conj_neg is False and conj_pos is False:
                 return False
             if conj_neg is True and conj_pos is True:
                 return conj_abs # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
 
@@ -333,37 +385,34 @@ class CCNF:
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
 
-        conj_abs = CCNF.conjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        conj_abs = CCNF.conjunction_serial(tree1[3], tree2, config)
         if conj_abs is False:
             return False
 
-        if use_direct_association:
-            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, cached=cached)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=cached)
+        if config['conjunction_direct_association']:
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
         else:
-            conj_neg = CCNF.conjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial(tree1[1], tree2, config)
+            conj_pos = CCNF.conjunction_serial(tree1[2], tree2, config)
             if conj_neg is False and conj_pos is False:
                 return False
             if conj_neg is True and conj_pos is True:
                 return conj_abs # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
             
     
     conjunction_cache = {}
 
-    def conjunction_serial_manual(tree1: Tuple | bool, tree2: Tuple | bool, 
-                    cached: bool,
-                    use_direct_association = True,
-                    simplify = False) -> Tuple | bool:
+    def conjunction_serial_manual(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the conjunction between two C-CNF formulas.
         """
@@ -387,12 +436,12 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            conj_abs = CCNF.conjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            conj_abs = CCNF.conjunction_serial_manual(tree1[3], tree2[3], config)
             if conj_abs is False:
                 CCNF.conjunction_cache[(tree1, tree2)] = False
                 return False
-            conj_neg = CCNF.conjunction_serial(tree1[1], tree2[1], simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction_serial(tree1[2], tree2[2], simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial_manual(tree1[1], tree2[1], config)
+            conj_pos = CCNF.conjunction_serial_manual(tree1[2], tree2[2], config)
             if conj_neg is False and conj_pos is False:
                 CCNF.conjunction_cache[(tree1, tree2)] = False
                 return False
@@ -400,9 +449,9 @@ class CCNF:
                 CCNF.conjunction_cache[(tree1, tree2)] = conj_abs
                 return conj_abs # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
-            if simplify:
-                res = CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
                 CCNF.conjunction_cache[(tree1, tree2)] = res
                 return res
             else:
@@ -410,23 +459,23 @@ class CCNF:
                 return phi
 
         # Different maximum variables, where tree1[0] > tree2[0]
-        conj_abs = CCNF.conjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        conj_abs = CCNF.conjunction_serial_manual(tree1[3], tree2, config)
         if conj_abs is False:
             CCNF.conjunction_cache[(tree1, tree2)] = False
             return False
 
-        if use_direct_association:
-            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, cached=cached)
-            if simplify:
-                res = CCNF.simplify_ccnf(phi, cached=cached)
+        if config['conjunction_direct_association']:
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
                 CCNF.conjunction_cache[(tree1, tree2)] = res
                 return res
             else:
                 CCNF.conjunction_cache[(tree1, tree2)] = phi
                 return phi
         else:
-            conj_neg = CCNF.conjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
-            conj_pos = CCNF.conjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+            conj_neg = CCNF.conjunction_serial_manual(tree1[1], tree2, config)
+            conj_pos = CCNF.conjunction_serial_manual(tree1[2], tree2, config)
             if conj_neg is False and conj_pos is False:
                 CCNF.conjunction_cache[(tree1, tree2)] = False
                 return False
@@ -434,25 +483,31 @@ class CCNF:
                 CCNF.conjunction_cache[(tree1, tree2)] = conj_abs
                 return conj_abs # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, cached=cached)
-            if simplify:
-                res = CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
                 CCNF.conjunction_cache[(tree1, tree2)] = res
                 return res
             else:
                 CCNF.conjunction_cache[(tree1, tree2)] = phi
                 return phi
 
-    def disjunction(tree1: Tuple | bool, tree2: Tuple | bool,
-                    cached: bool, simplify = False, parallel = False) -> Tuple | bool:
-        if parallel and 2 <= cpu_count():
-            #print("Versión paralelizada de disyunction")
-            return CCNF.disjunction_parallel(tree1, tree2, simplify)
-        else:
-            return CCNF.disjunction_serial_manual(tree1, tree2, cached, simplify)
 
-    def disjunction_parallel(tree1: Tuple | bool, tree2: Tuple | bool,
-                             simplify = False) -> Tuple | bool:
+    def disjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        if config['disjunction_parallel']:
+            #print("Versión paralelizada de disyunction")
+            return CCNF.disjunction_parallel(tree1, tree2, config)
+        else:
+            return CCNF.disjunction_serial_wrapper(tree1, tree2, config)
+        
+    def disjunction_serial_wrapper(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        if config['disjunction_cached_lru']:
+            return CCNF.disjunction_serial(tree1, tree2, config)
+        if config['disjunction_cached_dicts']:
+            return CCNF.disjunction_serial_manual(tree1, tree2, config)
+        return CCNF.disjunction_serial_basic(tree1, tree2, config)
+
+    def disjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the disjunction between two C-CNF formulas.
         """
@@ -468,44 +523,50 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            phi_3_ = CCNF.disjunction_parallel(tree1[3], tree2[3], simplify=simplify)
+            phi_3_ = CCNF.disjunction_parallel(tree1[3], tree2[3], config)
             if phi_3_ is False:
                 return False
             
-            # Paralelizar las conjunciones va mucho peor
-            #with Pool(processes=2) as pool:
-            #    async_phi_11_ = pool.apply_async(CCNF.conjunction_serial, (tree2[1], tree2[3], ), {'simplify': simplify, 'cached': False,})
-            #    async_phi_21_ = pool.apply_async(CCNF.conjunction_serial, (tree2[2], tree2[3], ), {'simplify': simplify, 'cached': False,})
-            #    phi_11_, phi_21_ = async_phi_11_.get(), async_phi_21_.get()
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], simplify=simplify, cached=False)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], simplify=simplify, cached=False)
+            if config['disjunction_parallel_conjs']:
+                # Paralelizar las conjunciones va mucho peor
+                with Pool(processes=2) as pool:
+                    async_phi_11_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree2[1], tree2[3], config))
+                    async_phi_21_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree2[2], tree2[3], config))
+                    phi_11_, phi_21_ = async_phi_11_.get(), async_phi_21_.get()
+            else:
+                phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
+                phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
             
-            with Pool(processes=4) as pool:
-                async_phi_13_ = pool.apply_async(CCNF.disjunction_serial, (tree1[3], tree2[1],), {'simplify': simplify, 'cached': False,})
-                async_phi_23_ = pool.apply_async(CCNF.disjunction_serial, (tree1[3], tree2[2],), {'simplify': simplify, 'cached': False,})
-                async_phi_12_ = pool.apply_async(CCNF.disjunction_serial, (tree1[1], phi_11_,), {'simplify': simplify, 'cached': False,})
-                async_phi_22_ = pool.apply_async(CCNF.disjunction_serial, (tree1[2], phi_21_,), {'simplify': simplify, 'cached': False,})
-                phi_13_, phi_23_, phi_12_, phi_22_ = async_phi_13_.get(), async_phi_23_.get(), async_phi_12_.get(), async_phi_22_.get()
-            #phi_13_ = CCNF.disjunction_parallel(tree1[3], tree2[1], simplify=simplify)
-            #phi_23_ = CCNF.disjunction_parallel(tree1[3], tree2[2], simplify=simplify)
-            #phi_12_ = CCNF.disjunction_parallel(tree1[1], phi_11_, simplify=simplify)
-            #phi_22_ = CCNF.disjunction_parallel(tree1[2], phi_21_, simplify=simplify)
+            if config['disjunction_parallel_disjs']:
+                with Pool(processes=4) as pool:
+                    async_phi_13_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2[1], config))
+                    async_phi_23_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2[2], config))
+                    async_phi_12_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[1], phi_11_, config))
+                    async_phi_22_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[2], phi_21_, config))
+                    phi_13_, phi_23_, phi_12_, phi_22_ = async_phi_13_.get(), async_phi_23_.get(), async_phi_12_.get(), async_phi_22_.get()
+            else:
+                phi_13_ = CCNF.disjunction_parallel(tree1[3], tree2[1], config)
+                phi_23_ = CCNF.disjunction_parallel(tree1[3], tree2[2], config)
+                phi_12_ = CCNF.disjunction_parallel(tree1[1], phi_11_, config)
+                phi_22_ = CCNF.disjunction_parallel(tree1[2], phi_21_, config)
 
-            #with Pool(processes=2) as pool:
-            #    async_phi_14_ = pool.apply_async(CCNF.conjunction_serial, (phi_12_, phi_13_, ), {'simplify': simplify, 'cached': False,})
-            #    async_phi_24_ = pool.apply_async(CCNF.conjunction_serial, (phi_22_, phi_23_, ), {'simplify': simplify, 'cached': False,})
-            #    phi_14_, phi_24_ = async_phi_14_.get(), async_phi_24_.get()
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, simplify=simplify, cached=False)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, simplify=simplify, cached=False)
+            if config['disjunction_parallel_conjs']:
+                with Pool(processes=2) as pool:
+                    async_phi_14_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (phi_12_, phi_13_, config))
+                    async_phi_24_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (phi_22_, phi_23_, config))
+                    phi_14_, phi_24_ = async_phi_14_.get(), async_phi_24_.get()
+            else:
+                phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
+                phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
 
             if phi_14_ is False and phi_24_ is False:
                 return False
             if phi_14_ is True and phi_24_ is True:
                 return phi_3_ # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, cached=False)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=False)
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
             
@@ -513,31 +574,93 @@ class CCNF:
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
         
-        disj_abs = CCNF.disjunction_parallel(tree1[3], tree2, simplify=simplify)
+        disj_abs = CCNF.disjunction_parallel(tree1[3], tree2, config)
         if disj_abs is False:
             return False
         
-        with Pool(processes=2) as pool:
-                async_disj_neg = pool.apply_async(CCNF.disjunction_serial, (tree1[1], tree2,), {'simplify': simplify, 'cached': False,})
-                async_disj_pos = pool.apply_async(CCNF.disjunction_serial, (tree1[2], tree2,), {'simplify': simplify, 'cached': False,})
+        if config['disjunction_parallel_disjs']:
+            with Pool(processes=2) as pool:
+                async_disj_neg = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[1], tree2, config))
+                async_disj_pos = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[2], tree2, config))
                 disj_neg, disj_pos = async_disj_neg.get(), async_disj_pos.get()
-        #disj_neg = CCNF.disjunction_parallel(tree1[1], tree2, simplify=simplify)
-        #disj_pos = CCNF.disjunction_parallel(tree1[2], tree2, simplify=simplify)
+        else:
+            disj_neg = CCNF.disjunction_parallel(tree1[1], tree2, config)
+            disj_pos = CCNF.disjunction_parallel(tree1[2], tree2, config)
         
         if disj_neg is False and disj_pos is False:
             return False
         if disj_neg is True and disj_pos is True:
             return disj_abs # Ya sea True o Tuple
         
-        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, cached=False)
-        if simplify:
-            return CCNF.simplify_ccnf(phi, cached=False)
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            return CCNF.simplify_ccnf(phi, config)
+        else:
+            return phi
+
+    def disjunction_serial_basic(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        """
+        Returns the disjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (false is the neutral element of disjunction)
+        if tree1 is False: return tree2
+        if tree2 is False: return tree1
+
+        # Domination (true is the dominant element of disjunction)
+        if tree1 is True or tree2 is True:
+            return True
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            phi_3_ = CCNF.disjunction_serial_basic(tree1[3], tree2[3], config)
+            if phi_3_ is False:
+                return False
+            
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            
+            phi_12_ = CCNF.disjunction_serial_basic(tree1[1], phi_11_, config)
+            phi_13_ = CCNF.disjunction_serial_basic(tree1[3], tree2[1], config)
+            phi_22_ = CCNF.disjunction_serial_basic(tree1[2], phi_21_, config)
+            phi_23_ = CCNF.disjunction_serial_basic(tree1[3], tree2[2], config)
+
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            if phi_14_ is False and phi_24_ is False:
+                return False
+            if phi_14_ is True and phi_24_ is True:
+                return phi_3_ # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
+            else:
+                return phi
+            
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+        
+        disj_abs = CCNF.disjunction_serial_basic(tree1[3], tree2, config)
+        if disj_abs is False:
+            return False
+        disj_neg = CCNF.disjunction_serial_basic(tree1[1], tree2, config)
+        disj_pos = CCNF.disjunction_serial_basic(tree1[2], tree2, config)
+        if disj_neg is False and disj_pos is False:
+            return False
+        if disj_neg is True and disj_pos is True:
+            return disj_abs # Ya sea True o Tuple
+        
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            return CCNF.simplify_ccnf(phi, config)
         else:
             return phi
 
     @lru_cache(maxsize=None)
-    def disjunction_serial(tree1: Tuple | bool, tree2: Tuple | bool,
-                    cached: bool, simplify = False) -> Tuple | bool:
+    def disjunction_serial(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the disjunction between two C-CNF formulas.
         """
@@ -553,28 +676,28 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            phi_3_ = CCNF.disjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            phi_3_ = CCNF.disjunction_serial(tree1[3], tree2[3], config)
             if phi_3_ is False:
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], simplify=simplify, cached=cached)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], simplify=simplify, cached=cached)
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
             
-            phi_12_ = CCNF.disjunction_serial(tree1[1], phi_11_, simplify=simplify, cached=cached)
-            phi_13_ = CCNF.disjunction_serial(tree1[3], tree2[1], simplify=simplify, cached=cached)
-            phi_22_ = CCNF.disjunction_serial(tree1[2], phi_21_, simplify=simplify, cached=cached)
-            phi_23_ = CCNF.disjunction_serial(tree1[3], tree2[2], simplify=simplify, cached=cached)
+            phi_12_ = CCNF.disjunction_serial(tree1[1], phi_11_, config)
+            phi_13_ = CCNF.disjunction_serial(tree1[3], tree2[1], config)
+            phi_22_ = CCNF.disjunction_serial(tree1[2], phi_21_, config)
+            phi_23_ = CCNF.disjunction_serial(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, simplify=simplify, cached=cached)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, simplify=simplify, cached=cached)
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 return False
             if phi_14_ is True and phi_24_ is True:
                 return phi_3_ # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, cached=cached)
-            if simplify:
-                return CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
             else:
                 return phi
             
@@ -582,27 +705,26 @@ class CCNF:
         if tree1[0] < tree2[0]:
             tree1, tree2 = tree2, tree1
         
-        disj_abs = CCNF.disjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        disj_abs = CCNF.disjunction_serial(tree1[3], tree2, config)
         if disj_abs is False:
             return False
-        disj_neg = CCNF.disjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
-        disj_pos = CCNF.disjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+        disj_neg = CCNF.disjunction_serial(tree1[1], tree2, config)
+        disj_pos = CCNF.disjunction_serial(tree1[2], tree2, config)
         if disj_neg is False and disj_pos is False:
             return False
         if disj_neg is True and disj_pos is True:
             return disj_abs # Ya sea True o Tuple
         
-        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, cached=cached)
-        if simplify:
-            return CCNF.simplify_ccnf(phi, cached=cached)
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            return CCNF.simplify_ccnf(phi, config)
         else:
             return phi
 
     
     disjunction_cache = {}
 
-    def disjunction_serial_manual(tree1: Tuple | bool, tree2: Tuple | bool,
-                    cached: bool, simplify = False) -> Tuple | bool:
+    def disjunction_serial_manual(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the disjunction between two C-CNF formulas.
         """
@@ -626,21 +748,21 @@ class CCNF:
         ## Recursive cases
         # Same maximum variable in the root
         if tree1[0] == tree2[0]:
-            phi_3_ = CCNF.disjunction_serial(tree1[3], tree2[3], simplify=simplify, cached=cached)
+            phi_3_ = CCNF.disjunction_serial_manual(tree1[3], tree2[3], config)
             if phi_3_ is False:
                 CCNF.disjunction_cache[(tree1, tree2)] = False
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], simplify=simplify, cached=cached)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], simplify=simplify, cached=cached)
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
             
-            phi_12_ = CCNF.disjunction_serial(tree1[1], phi_11_, simplify=simplify, cached=cached)
-            phi_13_ = CCNF.disjunction_serial(tree1[3], tree2[1], simplify=simplify, cached=cached)
-            phi_22_ = CCNF.disjunction_serial(tree1[2], phi_21_, simplify=simplify, cached=cached)
-            phi_23_ = CCNF.disjunction_serial(tree1[3], tree2[2], simplify=simplify, cached=cached)
+            phi_12_ = CCNF.disjunction_serial_manual(tree1[1], phi_11_, config)
+            phi_13_ = CCNF.disjunction_serial_manual(tree1[3], tree2[1], config)
+            phi_22_ = CCNF.disjunction_serial_manual(tree1[2], phi_21_, config)
+            phi_23_ = CCNF.disjunction_serial_manual(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, simplify=simplify, cached=cached)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, simplify=simplify, cached=cached)
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 CCNF.disjunction_cache[(tree1, tree2)] = False
                 return False
@@ -648,9 +770,9 @@ class CCNF:
                 CCNF.disjunction_cache[(tree1, tree2)] = phi_3_
                 return phi_3_ # Ya sea True o Tuple
             
-            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, cached=cached)
-            if simplify:
-                res = CCNF.simplify_ccnf(phi, cached=cached)
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
                 CCNF.disjunction_cache[(tree1, tree2)] = res
                 return res
             else:
@@ -658,12 +780,12 @@ class CCNF:
                 return phi
             
         # tree1[0] > tree2[0]
-        disj_abs = CCNF.disjunction_serial(tree1[3], tree2, simplify=simplify, cached=cached)
+        disj_abs = CCNF.disjunction_serial_manual(tree1[3], tree2, config)
         if disj_abs is False:
             CCNF.disjunction_cache[(tree1, tree2)] = False
             return False
-        disj_neg = CCNF.disjunction_serial(tree1[1], tree2, simplify=simplify, cached=cached)
-        disj_pos = CCNF.disjunction_serial(tree1[2], tree2, simplify=simplify, cached=cached)
+        disj_neg = CCNF.disjunction_serial_manual(tree1[1], tree2, config)
+        disj_pos = CCNF.disjunction_serial_manual(tree1[2], tree2, config)
         if disj_neg is False and disj_pos is False:
             CCNF.disjunction_cache[(tree1, tree2)] = False
             return False
@@ -671,9 +793,9 @@ class CCNF:
             CCNF.disjunction_cache[(tree1, tree2)] = disj_abs
             return disj_abs # Ya sea True o Tuple
         
-        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, cached=cached)
-        if simplify:
-            res = CCNF.simplify_ccnf(phi, cached=cached)
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            res = CCNF.simplify_ccnf(phi, config)
             CCNF.disjunction_cache[(tree1, tree2)] = res
             return res
         else:
@@ -681,51 +803,51 @@ class CCNF:
             return phi
 
 
-    def simplify_ccnf(tree: Tuple | bool, cached: bool, iterative = True) -> Tuple | bool:
-        if iterative:
-            return CCNF.simplify_ccnf_it(tree, cached=cached)
-        return CCNF.simplify_ccnf_rec(tree, cached=cached)
+    def simplify_ccnf(tree: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        if config['iterative']:
+            return CCNF.simplify_ccnf_it(tree, config)
+        return CCNF.simplify_ccnf_rec(tree, config)
 
-    def simplify_ccnf_rec(tree: Tuple | bool, cached: bool) -> Tuple | bool:
+    def simplify_ccnf_rec(tree: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         #set_trace()
         # Necessary check if in the next case it is true and conjunction returns a boolean
         if tree is True or tree is False:
             return tree
 
-        if CCNF.equals(tree[1], tree[2], cached=cached):
-            phi = CCNF.conjunction_serial(tree[1], tree[3], simplify=False, cached=cached)
-            return CCNF.simplify_ccnf_rec(phi, cached=cached)
+        if CCNF.equals(tree[1], tree[2], config):
+            phi = CCNF.conjunction_serial_wrapper(tree[1], tree[3], config)
+            return CCNF.simplify_ccnf_rec(phi, config)
         
         # First condition to avoid infinite reqursion when phi_1 = phi_3 = True
-        if tree[1] is not True and CCNF.equals(tree[1], tree[3], cached=cached):
-            phi = CCNF.create_node(tree[0], True, tree[2], tree[3], cached=cached)
-            return CCNF.simplify_ccnf_rec(phi, cached=cached)
+        if tree[1] is not True and CCNF.equals(tree[1], tree[3], config):
+            phi = CCNF.create_node(tree[0], True, tree[2], tree[3], config)
+            return CCNF.simplify_ccnf_rec(phi, config)
 
         # First condition to avoid infinite reqursion when phi_2 = phi_3 = True
-        if tree[2] is not True and CCNF.equals(tree[2], tree[3], cached=cached):
-            phi = CCNF.create_node(tree[0], tree[1], True, tree[3], cached=cached)
-            return CCNF.simplify_ccnf_rec(phi, cached=cached)
+        if tree[2] is not True and CCNF.equals(tree[2], tree[3], config):
+            phi = CCNF.create_node(tree[0], tree[1], True, tree[3], config)
+            return CCNF.simplify_ccnf_rec(phi, config)
         
         return tree
 
-    def simplify_ccnf_it(tree: Tuple | bool, cached: bool) -> Tuple | bool:
+    def simplify_ccnf_it(tree: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         while True:
             # Necessary check if in the next case it is true and conjunction returns a boolean
             if tree is True or tree is False:
                 return tree
 
-            if CCNF.equals(tree[1], tree[2], cached=cached):
-                tree = CCNF.conjunction_serial(tree[1], tree[3], simplify=False, cached=cached)
+            if CCNF.equals(tree[1], tree[2], config):
+                tree = CCNF.conjunction_serial_wrapper(tree[1], tree[3], config)
                 continue
             
             # First condition to avoid infinite iteration when phi_1 = phi_3 = True
-            if tree[1] is not True and CCNF.equals(tree[1], tree[3], cached=cached):
-                tree = CCNF.create_node(tree[0], True, tree[2], tree[3], cached=cached)
+            if tree[1] is not True and CCNF.equals(tree[1], tree[3], config):
+                tree = CCNF.create_node(tree[0], True, tree[2], tree[3], config)
                 continue
 
             # First condition to avoid infinite iteration when phi_2 = phi_3 = True
-            if tree[2] is not True and CCNF.equals(tree[2], tree[3], cached=cached):
-                tree = CCNF.create_node(tree[0], tree[1], True, tree[3], cached=cached)
+            if tree[2] is not True and CCNF.equals(tree[2], tree[3], config):
+                tree = CCNF.create_node(tree[0], tree[1], True, tree[3], config)
                 continue
             
             return tree
@@ -733,12 +855,12 @@ class CCNF:
     ###
     # MEMORY TROUBLE-SHOOTING
     ###
-    def depth(tree: Tuple | bool) -> int:
+    def depth(tree: Union[Tuple, bool]) -> int:
         if tree is False or tree is True:
             return 1
         return 1 + max(CCNF.depth(tree[1]), CCNF.depth(tree[2]), CCNF.depth(tree[3]))
 
-    def max_nodes(tree: Tuple | bool) -> int:
+    def max_nodes(tree: Union[Tuple, bool]) -> int:
         if tree is False or tree is True:
             return 0
         
@@ -755,12 +877,12 @@ class CCNF:
             nodes += 3 ** i
         return nodes
 
-    def nodes(tree: Tuple | bool) -> int:
+    def nodes(tree: Union[Tuple, bool]) -> int:
         if tree is False or tree is True:
             return 0
         return 1 + CCNF.nodes(tree[1]) + CCNF.nodes(tree[2]) + CCNF.nodes(tree[3])
 
-    def nodes_no_repetition(tree: Tuple | bool, seen = None) -> int:
+    def nodes_no_repetition(tree: Union[Tuple, bool], seen = None) -> int:
         if tree is False or tree is True:
             return 0
         
@@ -778,7 +900,7 @@ class CCNF:
                     + CCNF.nodes_no_repetition(tree[3], seen)
 
 
-    def size(tree: Tuple | bool) -> int:
+    def size(tree: Union[Tuple, bool]) -> int:
         return get_total_size(tree)
             
     def contains_true(tree):
@@ -927,7 +1049,7 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> int:
         i -= 1
     return num
 
-def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
+def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Optional[bool]:
     i = len(clauses) - 1
     while i >= 0:
         clause = clauses[i]
@@ -956,7 +1078,7 @@ def _any_all_universal_clause(clauses: CNF_Formula, vars2quant: Dict[int, Quanti
             return True
     return False
 
-def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None | bool:
+def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Optional[bool]:
     # v -> ( [[i,j] where clauses[i,j] == v],  [[i',j'] where clauses[i',j'] == -v])
     vars = list(vars2quant.keys())
     num_vars = len(vars)
@@ -1035,7 +1157,7 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> None |
                     return False
 
 
-def _preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> None | bool:
+def _preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Optional[bool]:
     vars2quant = {}
     for q, vars in quantifiers:
         for v in vars:
@@ -1090,11 +1212,7 @@ def _preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> None | bool:
         return False
     
 
-def compactify(clauses: CNF_Formula, quantifiers: List[QBlock], 
-               cached:bool, absorb_with_prefixes = False, 
-               simplify_tautologies = True, preprocess = False, 
-               simplify = False,
-               check_absorb_with_prefixes = False) -> Tuple | bool:
+def compactify(clauses: CNF_Formula, quantifiers: List[QBlock], config: Dict[str, bool]) -> Union[Tuple, bool]:
     """
     The idea is to have a ternary tree with a level for each variable in the CNF.
     """
@@ -1103,17 +1221,12 @@ def compactify(clauses: CNF_Formula, quantifiers: List[QBlock],
     for c in clauses:
         c.sort(key=abs, reverse=True)
 
-    if simplify_tautologies:
+    if config['pre_simplify_tautologies']:
         # set_trace()
         _eliminate_tautological_clauses(clauses)
         _eliminate_tautological_variables(clauses)
-    else:
-        num = _eliminate_tautological_clauses(clauses)
-        assert num == 0, "Todavía hay cláusulas con v y -v !!!"
-        num = _eliminate_tautological_variables(clauses)
-        assert num == 0, "Todavía hay cláusulas con varios v !!!"
 
-    if preprocess:
+    if config['preprocessor']:
         # In place modification to clauses
         if _preprocess(clauses, quantifiers) is False:
             return False
@@ -1125,18 +1238,15 @@ def compactify(clauses: CNF_Formula, quantifiers: List[QBlock],
 
     # Third: we use associativity and absortion to remove clauses that have other clause(s) (the preceeding one do to the
     # previous sorting) as prefix(es)
-    if absorb_with_prefixes:
+    if config['absorb_with_prefixes']:
         _absorb_with_prefixes(clauses)
-    if check_absorb_with_prefixes:
-        num = _absorb_with_prefixes(clauses)
-        assert num == 0, "No se han aplicado todas las subsumpciones (absorbciones) posibles !!!"
-    # Note: the previous step is not strictly necessary. We would reach a point were the empty list would
-    # be found as the base case in _compactify, and we would obtain a totally equivalent answer.
+        # Note: the previous step is not strictly necessary. We would reach a point were the empty list would
+        # be found as the base case in _compactify, and we would obtain a totally equivalent answer.
 
-    return _compactify(clauses, cached=cached, simplify=simplify)
+    return _compactify(clauses, config)
     
 
-def _compactify(clauses: CNF_Formula, cached: bool, simplify = False) -> Tuple | bool:
+def _compactify(clauses: CNF_Formula, config: Dict[str, bool]) -> Union[Tuple, bool]:
     """
     Auxiliar recursive function for compactify.
 
@@ -1181,19 +1291,19 @@ def _compactify(clauses: CNF_Formula, cached: bool, simplify = False) -> Tuple |
         phi3.append(clauses[i])
         i += 1
 
-    absTree = _compactify(phi3, cached=cached, simplify=simplify)
+    absTree = _compactify(phi3, config)
     if absTree is False:
         return False
-    negTree = _compactify(phi1, cached=cached, simplify=simplify)
-    posTree = _compactify(phi2, cached=cached, simplify=simplify)
+    negTree = _compactify(phi1, config)
+    posTree = _compactify(phi2, config)
     if negTree is False and posTree is False:
         return False
     if negTree is True and posTree is True:
         return absTree # Ya sea True o Tuple
     
-    phi = CCNF.create_node(vn, negTree, posTree, absTree, cached=cached)
-    if simplify:
-        return CCNF.simplify_ccnf(phi, cached=cached)
+    phi = CCNF.create_node(vn, negTree, posTree, absTree, config)
+    if config['simplify']:
+        return CCNF.simplify_ccnf(phi, config)
     else:
         return phi
 
@@ -1340,7 +1450,7 @@ def get_total_size(obj, seen=None):
         return 0  # Ya contamos este objeto
     seen.add(obj_id)
 
-    size = getsizeof(obj)
+    size = sys.getsizeof(obj)
 
     if isinstance(obj, dict):
         size += sum(get_total_size(k, seen) + get_total_size(v, seen) for k, v in obj.items())
