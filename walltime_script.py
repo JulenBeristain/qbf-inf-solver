@@ -295,13 +295,16 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
 
 if __name__ == "__main__":
     
+    iterative_experimentation = True
+
     # Indicar aquí el solver
-    solver_name, solver_path, python = "DepQBF", "depqbf", False
+    #solver_name, solver_path, python = "DepQBF", "depqbf", False
     #solver_name, solver_path, python = "Naive", "/home/julen/TFG/qbf_naive_solver.py", True
     #solver_name, solver_path, python = "NaivePre", "/home/julen/TFG/qbf_naive_solver_pre.py", True
-    #solver_name, solver_path, python = "FNI", "home/julen/TFG/qbf_inf_final.py", True
-    
-    iterative_experimentation = True
+    if iterative_experimentation:
+        solver_name, solver_path, python = "FNI_iter", "/home/julen/TFG/qbf_inf_solver_iter.py", True
+    else:
+        solver_name, solver_path, python = "FNI", "home/julen/TFG/qbf_inf_solver_final.py", True
     
     instance_dir = "/home/julen/integration_tests"
     if iterative_experimentation:
@@ -336,14 +339,15 @@ if __name__ == "__main__":
         print(f"    Status: {aggregate['status']}, Wall Time: {aggregate['total_wall_time']}")
 
     # Save results to a CSV file
-    output_csv_file = f"{solver_name}_walltime_results.csv"
-    if all_results:
-        keys = all_results[0].keys()
-        with open(output_csv_file, 'w', newline='') as output_file:
-            dict_writer = csv.DictWriter(output_file, fieldnames=keys)
-            dict_writer.writeheader()
-            dict_writer.writerows(all_results)
-        print(f"Walltime results saved to {output_csv_file}")
+    if not iterative_experimentation:
+        output_csv_file = f"{solver_name}_walltime_results.csv"
+        if all_results:
+            keys = all_results[0].keys()
+            with open(output_csv_file, 'w', newline='') as output_file:
+                dict_writer = csv.DictWriter(output_file, fieldnames=keys)
+                dict_writer.writeheader()
+                dict_writer.writerows(all_results)
+            print(f"Walltime results saved to {output_csv_file}")
 
     # Agregado único por cada solver de todos los datos
     num_instances = len(instances)
@@ -399,6 +403,11 @@ if __name__ == "__main__":
         'wall_time_penalized_s_std_dev': wall_time_penalized_std_dev,
     }
 
+    if iterative_experimentation:
+        relevant_data = ['solver_name', 'instance_num', 'correct_num', 'correct_per', 'incorrect_num', 
+                         'wall_time_penalized_s_mean']
+        aggregate_data = {k:v for k,v in aggregate_data.items() if k in relevant_data}
+
     aggregate_csv_file = f"{solver_name}_walltime_aggregate.csv"
     keys = aggregate_data.keys()
     with open(aggregate_csv_file, 'w', newline='') as output_file:
@@ -406,3 +415,7 @@ if __name__ == "__main__":
         dict_writer.writeheader()
         dict_writer.writerow(aggregate_data)
     print(f"Walltime aggregate results saved to {aggregate_csv_file}")
+
+    if iterative_experimentation:
+        for k,v in aggregate_data.items():
+            print(f'\t{k}: {v}')

@@ -951,21 +951,21 @@ if __name__ == '__main__':
         'pre_simplify_tautologies'          : True,     # Hacerlo siempre
         'iterative'                         : True,     # Hacerlo siempre (eliminate_variables y simplify)
 
-        'conjunction_direct_association'    : True,
+        'conjunction_direct_association'    : False,
         
-        'elim_e_disj_conj'                  : True,
+        'elim_e_disj_conj'                  : False,
         'parallel_elim_e_conj2_disj'        : False,    # Solo testearlo si elim_e_disj_conj es menos eficiente (no esperable)
         
-        'simplify'                          : True,    # Afecta a compactify, conjunction y disjunction
+        'simplify'                          : False,    # Afecta a compactify, conjunction y disjunction
         
-        'preprocessor'                      : True,
+        'preprocessor'                      : False,
         
-        'cached_nodes'                      : True,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
-        'equals_with_is'                    : True,     # Solo si cached is True
+        'cached_nodes'                      : False,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
+        'equals_with_is'                    : False,     # Solo si cached is True
         
         'absorb_with_prefixes'              : False,
-        'disable_gc'                        : True,
-        'check_sat'                         : True,
+        'disable_gc'                        : False,
+        'check_sat'                         : False,
     
         'conjunction_parallel'              : False,
         'conjunction_parallel_lazy'         : True,     # Solo aplicable si conjunction_parallel is True
@@ -980,8 +980,8 @@ if __name__ == '__main__':
         'conjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
         'disjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
 
-        'conjunction_cached_dicts_ids'      : True,     # Excluyente con lru, dict, y precondición cached_nodes
-        'disjunction_cached_dicts_ids'      : True,     # Excluyente con lru, dict, y precondición cached_nodes
+        'conjunction_cached_dicts_ids'      : False,     # Excluyente con lru, dict, y precondición cached_nodes
+        'disjunction_cached_dicts_ids'      : False,     # Excluyente con lru, dict, y precondición cached_nodes
 
         'version_cached'                    : False,
         'version_cached_cleanup'            : None,     # Estos solo son posibles de realizar si version_cached is True
