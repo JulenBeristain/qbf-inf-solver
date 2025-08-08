@@ -699,7 +699,7 @@ def test_qbfgallery2023():
         print("-" * 40) # Separador para mejor legibilidad
         reset_debugging()
 
-def test_integration():
+def test_integration(config: Dict[str, bool]):
     print("----------- TEST INTEGRATION ---------------")
 
     sys.setrecursionlimit(4000)
@@ -895,7 +895,7 @@ def test_integration():
         res = None
         try:
             with time_limit(10): # Aquí aplicamos el límite de 60 segundos
-                res = inf_solver(quantifiers, clauses, debugging=False)
+                res = inf_solver(quantifiers, clauses, config)
             t1 = time()
             print(f"{'CORRECT' if res == results[filename] else 'INCORRECT'} {'SAT' if res else 'UNSAT'}")
             print(f"Time: {t1 - t0 : .4f} seconds")
@@ -951,21 +951,21 @@ if __name__ == '__main__':
         'pre_simplify_tautologies'          : True,     # Hacerlo siempre
         'iterative'                         : True,     # Hacerlo siempre (eliminate_variables y simplify)
 
-        'conjunction_direct_association'    : False,
+        'conjunction_direct_association'    : True,
         
-        'elim_e_disj_conj'                  : False,
+        'elim_e_disj_conj'                  : True,
         'parallel_elim_e_conj2_disj'        : False,    # Solo testearlo si elim_e_disj_conj es menos eficiente (no esperable)
         
-        'simplify'                          : False,    # Afecta a compactify, conjunction y disjunction
+        'simplify'                          : True,    # Afecta a compactify, conjunction y disjunction
         
-        'preprocessor'                      : False,
+        'preprocessor'                      : True,
         
-        'cached_nodes'                      : False,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
+        'cached_nodes'                      : True,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
         'equals_with_is'                    : True,     # Solo si cached is True
         
         'absorb_with_prefixes'              : False,
-        'disable_gc'                        : False,
-        'check_sat'                         : False,
+        'disable_gc'                        : True,
+        'check_sat'                         : True,
     
         'conjunction_parallel'              : False,
         'conjunction_parallel_lazy'         : True,     # Solo aplicable si conjunction_parallel is True
@@ -979,6 +979,9 @@ if __name__ == '__main__':
         
         'conjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
         'disjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
+
+        'conjunction_cached_dicts_ids'      : True,     # Excluyente con lru, dict, y precondición cached_nodes
+        'disjunction_cached_dicts_ids'      : True,     # Excluyente con lru, dict, y precondición cached_nodes
 
         'version_cached'                    : False,
         'version_cached_cleanup'            : None,     # Estos solo son posibles de realizar si version_cached is True
@@ -1003,7 +1006,11 @@ if __name__ == '__main__':
     #assert not config['disjunction_parallel'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [12]"
     assert not config['conjunction_cached_lru'] or not config['conjunction_cached_dicts'], "Incorrect configuration! [13]"
     assert not config['disjunction_cached_lru'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [14]"
-    assert not config['version_cached'], "Incorrect script (this is tuples) for set value cached version! [15]"
+    assert not config['conjunction_cached_lru'] or not config['conjunction_cached_dicts_ids'], "Incorrect configuration! [15]"
+    assert not config['disjunction_cached_lru'] or not config['disjunction_cached_dicts_ids'], "Incorrect configuration! [16]"
+    assert not config['conjunction_cached_dicts'] or not config['conjunction_cached_dicts_ids'], "Incorrect configuration! [17]"
+    assert not config['disjunction_cached_dicts'] or not config['disjunction_cached_dicts_ids'], "Incorrect configuration! [18]"
+    assert not config['version_cached'], "Incorrect script (this is tuples) for set value cached version! [19]"
     
     #"""
     if len(sys.argv) != 2:
@@ -1029,6 +1036,5 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    #test_integration()
+    #test_integration(config)
     #test_problematic_integration()
-    #pass

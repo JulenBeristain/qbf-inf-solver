@@ -125,6 +125,8 @@ class CCNF:
             return CCNF.conjunction_serial(tree1, tree2, config)
         if config['conjunction_cached_dicts']:
             return CCNF.conjunction_serial_manual(tree1, tree2, config)
+        if config['conjunction_cached_dicts_ids']:
+            return CCNF.conjunction_serial_manual_ids(tree1, tree2, config)
         return CCNF.conjunction_serial_basic(tree1, tree2, config)
 
     def conjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
@@ -492,6 +494,98 @@ class CCNF:
                 CCNF.conjunction_cache[(tree1, tree2)] = phi
                 return phi
 
+    """
+    Nota: hacer cleanup con esta variante sería posible, recorriendo el árbol de la formula al principio de eliminate_, pillando los
+        ids de los nodos que usamos en ese momento y después recorriendo la cache de memoización de las operaciones, eliminando las 
+        entradas cuyos keys contienen algún id de los no encontrados en el recorrido. No obstante, como todas las tuplas se mantienen 
+        en memoria por usar cached_nodes (la lru_cache de los nodos), solo estaríamos aligerando las caches de memoización. Por lo tanto,
+        sigue siendo poco interesante. Por otro lado, precisamente el hecho de que las tuplas se mantienen en memoria (en la misma posición)
+        gracias a la lru cache hace que estas variantes sean posibles, así la incompatibilidad con cleanup es algo natural.
+    """
+
+    def conjunction_serial_manual_ids(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        """
+        Returns the conjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (true is the neutral element of conjunction)
+        if tree1 is True: return tree2
+        if tree2 is True: return tree1
+
+        # Domination (false is the dominant element of conjunction)
+        if tree1 is False or tree2 is False: 
+            return False
+
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        id1, id2 = id(tree1), id(tree2)
+
+        res = CCNF.conjunction_cache.get((id1, id2))
+        if res is not None:
+            return res
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            conj_abs = CCNF.conjunction_serial_manual_ids(tree1[3], tree2[3], config)
+            if conj_abs is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
+                return False
+            conj_neg = CCNF.conjunction_serial_manual_ids(tree1[1], tree2[1], config)
+            conj_pos = CCNF.conjunction_serial_manual_ids(tree1[2], tree2[2], config)
+            if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
+                return False
+            if conj_neg is True and conj_pos is True:
+                CCNF.conjunction_cache[(id1, id2)] = conj_abs
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
+                return phi
+
+        # Different maximum variables, where tree1[0] > tree2[0]
+        conj_abs = CCNF.conjunction_serial_manual_ids(tree1[3], tree2, config)
+        if conj_abs is False:
+            CCNF.conjunction_cache[(id1, id2)] = False
+            return False
+
+        if config['conjunction_direct_association']:
+            phi = CCNF.create_node(tree1[0], tree1[1], tree1[2], conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
+                return phi
+        else:
+            conj_neg = CCNF.conjunction_serial_manual_ids(tree1[1], tree2, config)
+            conj_pos = CCNF.conjunction_serial_manual_ids(tree1[2], tree2, config)
+            if conj_neg is False and conj_pos is False:
+                CCNF.conjunction_cache[(id1, id2)] = False
+                return False
+            if conj_neg is True and conj_pos is True:
+                CCNF.conjunction_cache[(id1, id2)] = conj_abs
+                return conj_abs # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
+                CCNF.conjunction_cache[(id1, id2)] = res
+                return res
+            else:
+                CCNF.conjunction_cache[(id1, id2)] = phi
+                return phi
+            
+
 
     def disjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         if config['disjunction_parallel']:
@@ -505,6 +599,8 @@ class CCNF:
             return CCNF.disjunction_serial(tree1, tree2, config)
         if config['disjunction_cached_dicts']:
             return CCNF.disjunction_serial_manual(tree1, tree2, config)
+        if config['disjunction_cached_dicts_ids']:
+            return CCNF.disjunction_serial_manual_ids(tree1, tree2, config)
         return CCNF.disjunction_serial_basic(tree1, tree2, config)
 
     def disjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
@@ -801,6 +897,88 @@ class CCNF:
         else:
             CCNF.disjunction_cache[(tree1, tree2)] = phi
             return phi
+
+
+    def disjunction_serial_manual_ids(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        """
+        Returns the disjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (false is the neutral element of disjunction)
+        if tree1 is False: return tree2
+        if tree2 is False: return tree1
+
+        # Domination (true is the dominant element of disjunction)
+        if tree1 is True or tree2 is True:
+            return True
+
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+
+        id1, id2 = id(tree1), id(tree2)
+
+        res = CCNF.disjunction_cache.get((id1, id2))
+        if res is not None:
+            return res
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            phi_3_ = CCNF.disjunction_serial_manual_ids(tree1[3], tree2[3], config)
+            if phi_3_ is False:
+                CCNF.disjunction_cache[(id1, id2)] = False
+                return False
+            
+            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            
+            phi_12_ = CCNF.disjunction_serial_manual_ids(tree1[1], phi_11_, config)
+            phi_13_ = CCNF.disjunction_serial_manual_ids(tree1[3], tree2[1], config)
+            phi_22_ = CCNF.disjunction_serial_manual_ids(tree1[2], phi_21_, config)
+            phi_23_ = CCNF.disjunction_serial_manual_ids(tree1[3], tree2[2], config)
+
+            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            if phi_14_ is False and phi_24_ is False:
+                CCNF.disjunction_cache[(id1, id2)] = False
+                return False
+            if phi_14_ is True and phi_24_ is True:
+                CCNF.disjunction_cache[(id1, id2)] = phi_3_
+                return phi_3_ # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                res = CCNF.simplify_ccnf(phi, config)
+                CCNF.disjunction_cache[(id1, id2)] = res
+                return res
+            else:
+                CCNF.disjunction_cache[(id1, id2)] = phi
+                return phi
+            
+        # tree1[0] > tree2[0]
+        disj_abs = CCNF.disjunction_serial_manual_ids(tree1[3], tree2, config)
+        if disj_abs is False:
+            CCNF.disjunction_cache[(id1, id2)] = False
+            return False
+        disj_neg = CCNF.disjunction_serial_manual_ids(tree1[1], tree2, config)
+        disj_pos = CCNF.disjunction_serial_manual_ids(tree1[2], tree2, config)
+        if disj_neg is False and disj_pos is False:
+            CCNF.disjunction_cache[(id1, id2)] = False
+            return False
+        if disj_neg is True and disj_pos is True:
+            CCNF.disjunction_cache[(id1, id2)] = disj_abs
+            return disj_abs # Ya sea True o Tuple
+        
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            res = CCNF.simplify_ccnf(phi, config)
+            CCNF.disjunction_cache[(id1, id2)] = res
+            return res
+        else:
+            CCNF.disjunction_cache[(id1, id2)] = phi
+            return phi
+
 
 
     def simplify_ccnf(tree: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:

@@ -990,13 +990,16 @@ if __name__ == '__main__':
         'conjunction_cached_lru'            : False,    # Incompatible con parallel
         'disjunction_cached_lru'            : False,    # Incompatible con parallel
         
-        'conjunction_cached_dicts'          : None,     # Excluyente con lru, es decir, los dos no pueden ser True
-        'disjunction_cached_dicts'          : None,     # Excluyente con lru, es decir, los dos no pueden ser True
+        'conjunction_cached_dicts'          : None,     # Redundantes con _lru
+        'disjunction_cached_dicts'          : None,     # Redundantes con _lru
+
+        'conjunction_cached_dicts_ids'      : None,     # Redundantes con _lru
+        'disjunction_cached_dicts_ids'      : None,     # Redundantes con _lru
 
         'version_cached'                    : True,
         'version_cached_cleanup'            : False,
-        'version_cached_memo_lru'           : None,     # nocleanup OBLIGATORIAMENTE
-        'version_cached_memo_dicts'         : None,     # Este podemos combinarlo con cleanup y nocleanup
+        'version_cached_memo_lru'           : None,     # Redundantes con _lru
+        'version_cached_memo_dicts'         : None,     # Redundantes con _lru
     }
 
     assert not config['debugging'], "Incorrect configuration! [1]"
