@@ -10,8 +10,9 @@ from qbf_parser import read_qdimacs_from_file_unchecked
 import sys
 from functools import lru_cache
 from multiprocessing import Pool
-from os import cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
+#import psutil # Para eliminar subprocessos en la versión lazy de conjunction
+import os
 
 ##############################################################################################
 ### COMPACTIFY ###############################################################################
@@ -121,13 +122,7 @@ class CCNF:
             return CCNF.conjunction_serial_wrapper(tree1, tree2, config)
 
     def conjunction_serial_wrapper(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
-        if config['conjunction_cached_lru']:
-            return CCNF.conjunction_serial(tree1, tree2, config)
-        if config['conjunction_cached_dicts']:
-            return CCNF.conjunction_serial_manual(tree1, tree2, config)
-        if config['conjunction_cached_dicts_ids']:
-            return CCNF.conjunction_serial_manual_ids(tree1, tree2, config)
-        return CCNF.conjunction_serial_basic(tree1, tree2, config)
+        return config['f_conjunction_serial'](tree1, tree2, config)
 
     def conjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         ## Base cases
@@ -176,19 +171,23 @@ class CCNF:
                         exit()
                     
                     if results[2] is False:
-                        for i, fut in enumerate(futures):
-                            if results[i] is None: fut.cancel()
-                        #pool.shutdown(wait=False, cancel_futures=True)
+                        CCNF.cancel_and_kill(pool)
                         return False
                     if results[0] is False and results[1] is False:
-                        if results[2] is None: futures[2].cancel()
-                        #pool.shutdown(wait=False, cancel_futures=True)
+                        CCNF.cancel_and_kill(pool)
                         return False
                     if results[0] is True and results[1] is True:
-                        if results[2] is None: return futures[2].result()
-                        return results[2]
+                        if results[2] is None:
+                            pool.shutdown(wait=True, cancel_futures=False)
+                            CCNF.kill_worker_processes()
+                            return futures[2].result()
+                        else:
+                            CCNF.cancel_and_kill(pool)
+                            return results[2]
 
-            conj_neg, conj_pos, conj_abs = results
+                CCNF.cancel_and_kill(pool)
+                conj_neg, conj_pos, conj_abs = results
+            
             phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
             if config['simplify']:
                 return CCNF.simplify_ccnf(phi, config)
@@ -228,12 +227,7 @@ class CCNF:
                     return False
                 if conj_neg is True and conj_pos is True:
                     return conj_abs # True o tuple
-
-                phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
-                if config['simplify']:
-                    return CCNF.simplify_ccnf(phi, config)
-                else:
-                    return phi
+                
             else:
                 pool = ProcessPoolExecutor(max_workers=3)
                 futures = [ pool.submit(CCNF.conjunction_serial_wrapper, tree1[i], tree2, config) for i in range(1,4) ]
@@ -248,24 +242,39 @@ class CCNF:
                         exit()
                     
                     if results[2] is False:
-                        for i, fut in enumerate(futures):
-                            if results[i] is None: fut.cancel()
-                        #pool.shutdown(wait=False, cancel_futures=True)
+                        CCNF.cancel_and_kill(pool)
                         return False
                     if results[0] is False and results[1] is False:
-                        if results[2] is None: futures[2].cancel()
-                        #pool.shutdown(wait=False, cancel_futures=True)
+                        CCNF.cancel_and_kill(pool)
                         return False
                     if results[0] is True and results[1] is True:
-                        if results[2] is None: return futures[2].result()
-                        return results[2]
+                        if results[2] is None:
+                            pool.shutdown(wait=True, cancel_futures=False)
+                            CCNF.kill_worker_processes()
+                            return futures[2].result()
+                        else:
+                            CCNF.cancel_and_kill(pool)
+                            return results[2]
 
+                CCNF.cancel_and_kill(pool)
                 conj_neg, conj_pos, conj_abs = results
-                phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
-                if config['simplify']:
-                    return CCNF.simplify_ccnf(phi, config)
-                else:
-                    return phi
+            
+            phi = CCNF.create_node(tree1[0], conj_neg, conj_pos, conj_abs, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
+            else:
+                return phi
+
+    def cancel_and_kill(pool):
+        pool.shutdown(wait=False, cancel_futures=True)
+        CCNF.kill_worker_processes()
+
+    def kill_worker_processes():
+        parent = psutil.Process(os.getpid())
+        children = parent.children(recursive=True)
+        for child in children:
+            child.kill()  # sends SIGKILL
+            
 
 
     def conjunction_serial_basic(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
@@ -591,17 +600,13 @@ class CCNF:
         if config['disjunction_parallel']:
             #print("Versión paralelizada de disyunction")
             return CCNF.disjunction_parallel(tree1, tree2, config)
+        elif config['disjunction_parallel_total']:
+            return CCNF.disjunction_parallel_total(tree1, tree2, config)
         else:
             return CCNF.disjunction_serial_wrapper(tree1, tree2, config)
         
     def disjunction_serial_wrapper(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
-        if config['disjunction_cached_lru']:
-            return CCNF.disjunction_serial(tree1, tree2, config)
-        if config['disjunction_cached_dicts']:
-            return CCNF.disjunction_serial_manual(tree1, tree2, config)
-        if config['disjunction_cached_dicts_ids']:
-            return CCNF.disjunction_serial_manual_ids(tree1, tree2, config)
-        return CCNF.disjunction_serial_basic(tree1, tree2, config)
+        return config['f_disjunction_serial'](tree1, tree2, config)
 
     def disjunction_parallel(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
@@ -694,6 +699,87 @@ class CCNF:
         else:
             return phi
 
+
+    def disjunction_parallel_total(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
+        """
+        Returns the disjunction between two C-CNF formulas.
+        """
+        ## Base cases
+        # Identity (false is the neutral element of disjunction)
+        if tree1 is False: return tree2
+        if tree2 is False: return tree1
+
+        # Domination (true is the dominant element of disjunction)
+        if tree1 is True or tree2 is True:
+            return True
+
+        ## Recursive cases
+        # Same maximum variable in the root
+        if tree1[0] == tree2[0]:
+            # A maximum of 5 concurrent processes apply_async-ed
+            with Pool(processes=5) as pool:
+                async_phi_3_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2[3], config))
+                
+                async_phi_11_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree2[1], tree2[3], config))
+                async_phi_21_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (tree2[2], tree2[3], config))
+                async_phi_13_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2[1], config))
+                async_phi_23_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2[2], config))
+                
+                # Blocking - Moved here to start the other processes. Problematic to have return inside with block?
+                phi_3_ = async_phi_3_.get()
+                if phi_3_ is False:
+                    return False
+
+                # Which is going to finish sooner? phi_11_ or phi_21_?
+                phi_11_ = async_phi_11_.get()
+                async_phi_12_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[1], phi_11_, config))
+                phi_21_ = async_phi_21_.get()
+                async_phi_22_ = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[2], phi_21_, config))
+                
+                # Which is going to finish sooner? phi_13_+phi_12_ or phi_23_+phi_24_?
+                phi_13_, phi_12_ = async_phi_13_.get(),  async_phi_12_.get()
+                async_phi_14_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (phi_12_, phi_13_, config))
+                phi_23_, phi_22_ = async_phi_23_.get(), async_phi_22_.get()
+                async_phi_24_ = pool.apply_async(CCNF.conjunction_serial_wrapper, (phi_22_, phi_23_, config))
+                
+                phi_14_, phi_24_ = async_phi_14_.get(), async_phi_24_.get()
+            
+            # Outside of with
+            if phi_14_ is False and phi_24_ is False:
+                return False
+            if phi_14_ is True and phi_24_ is True:
+                return phi_3_ # Ya sea True o Tuple
+            
+            phi = CCNF.create_node(tree1[0], phi_14_, phi_24_, phi_3_, config)
+            if config['simplify']:
+                return CCNF.simplify_ccnf(phi, config)
+            else:
+                return phi
+            
+        # Commutativity
+        if tree1[0] < tree2[0]:
+            tree1, tree2 = tree2, tree1
+        
+        with Pool(processes=3) as pool:
+            async_disj_abs = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[3], tree2, config))
+            async_disj_neg = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[1], tree2, config))
+            async_disj_pos = pool.apply_async(CCNF.disjunction_serial_wrapper, (tree1[2], tree2, config))
+            disj_abs, disj_neg, disj_pos = async_disj_abs.get(), async_disj_neg.get(), async_disj_pos.get()
+        
+        if disj_abs is False:
+            return False
+        if disj_neg is False and disj_pos is False:
+            return False
+        if disj_neg is True and disj_pos is True:
+            return disj_abs # Ya sea True o Tuple
+        
+        phi = CCNF.create_node(tree1[0], disj_neg, disj_pos, disj_abs, config)
+        if config['simplify']:
+            return CCNF.simplify_ccnf(phi, config)
+        else:
+            return phi
+
+
     def disjunction_serial_basic(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool], config: Dict[str, bool]) -> Union[Tuple, bool]:
         """
         Returns the disjunction between two C-CNF formulas.
@@ -714,16 +800,21 @@ class CCNF:
             if phi_3_ is False:
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            # NOTA: NO NECESARIAMENTE WRAPPER - SOLO SI DISJUNCTION PARALELIZA SUS DISJUNCTION!!!
+            # DOS OPCIONES:
+            #   A) Paralelizar conjunction, incluidos estos, y no disjunction-disj
+            #   B) Paralelizar conjunction en elim_, y disjunction-disj (aquí) pero con conjunction seriales
+            #   +) Paralelizar conjunction y disjunction-conj (en la práctica, parece similar a la opción A)
+            phi_11_ = CCNF.conjunction_serial_wrapper(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction_serial_wrapper(tree2[2], tree2[3], config)
             
             phi_12_ = CCNF.disjunction_serial_basic(tree1[1], phi_11_, config)
             phi_13_ = CCNF.disjunction_serial_basic(tree1[3], tree2[1], config)
             phi_22_ = CCNF.disjunction_serial_basic(tree1[2], phi_21_, config)
             phi_23_ = CCNF.disjunction_serial_basic(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            phi_14_ = CCNF.conjunction_serial_wrapper(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction_serial_wrapper(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 return False
             if phi_14_ is True and phi_24_ is True:
@@ -776,16 +867,16 @@ class CCNF:
             if phi_3_ is False:
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            phi_11_ = CCNF.conjunction_serial_wrapper(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction_serial_wrapper(tree2[2], tree2[3], config)
             
             phi_12_ = CCNF.disjunction_serial(tree1[1], phi_11_, config)
             phi_13_ = CCNF.disjunction_serial(tree1[3], tree2[1], config)
             phi_22_ = CCNF.disjunction_serial(tree1[2], phi_21_, config)
             phi_23_ = CCNF.disjunction_serial(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            phi_14_ = CCNF.conjunction_serial_wrapper(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction_serial_wrapper(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 return False
             if phi_14_ is True and phi_24_ is True:
@@ -849,16 +940,16 @@ class CCNF:
                 CCNF.disjunction_cache[(tree1, tree2)] = False
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            phi_11_ = CCNF.conjunction_serial_wrapper(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction_serial_wrapper(tree2[2], tree2[3], config)
             
             phi_12_ = CCNF.disjunction_serial_manual(tree1[1], phi_11_, config)
             phi_13_ = CCNF.disjunction_serial_manual(tree1[3], tree2[1], config)
             phi_22_ = CCNF.disjunction_serial_manual(tree1[2], phi_21_, config)
             phi_23_ = CCNF.disjunction_serial_manual(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            phi_14_ = CCNF.conjunction_serial_wrapper(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction_serial_wrapper(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 CCNF.disjunction_cache[(tree1, tree2)] = False
                 return False
@@ -930,16 +1021,16 @@ class CCNF:
                 CCNF.disjunction_cache[(id1, id2)] = False
                 return False
             
-            phi_11_ = CCNF.conjunction(tree2[1], tree2[3], config)
-            phi_21_ = CCNF.conjunction(tree2[2], tree2[3], config)
+            phi_11_ = CCNF.conjunction_serial_wrapper(tree2[1], tree2[3], config)
+            phi_21_ = CCNF.conjunction_serial_wrapper(tree2[2], tree2[3], config)
             
             phi_12_ = CCNF.disjunction_serial_manual_ids(tree1[1], phi_11_, config)
             phi_13_ = CCNF.disjunction_serial_manual_ids(tree1[3], tree2[1], config)
             phi_22_ = CCNF.disjunction_serial_manual_ids(tree1[2], phi_21_, config)
             phi_23_ = CCNF.disjunction_serial_manual_ids(tree1[3], tree2[2], config)
 
-            phi_14_ = CCNF.conjunction(phi_12_, phi_13_, config)
-            phi_24_ = CCNF.conjunction(phi_22_, phi_23_, config)
+            phi_14_ = CCNF.conjunction_serial_wrapper(phi_12_, phi_13_, config)
+            phi_24_ = CCNF.conjunction_serial_wrapper(phi_22_, phi_23_, config)
             if phi_14_ is False and phi_24_ is False:
                 CCNF.disjunction_cache[(id1, id2)] = False
                 return False

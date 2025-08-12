@@ -9,9 +9,6 @@ from qbf_parser import read_qdimacs_from_file_unchecked
 #from memory import get_total_size
 from sys import getsizeof
 from functools import lru_cache
-from multiprocessing import Pool
-from os import cpu_count
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import deque
 
 ##############################################################################################
@@ -127,7 +124,7 @@ class CCNF:
         CCNF.conjunction_calls = 0
 
     def conjunction(id1: Union[int, bool], id2: Union[int, bool], config: Dict[str, bool]) -> Union[int, bool]:
-        if config['conjunction_cached_lru']:
+        if config['version_cached_memo_lru']:
             return CCNF.conjunction_lru(id1, id2, config)
         return CCNF.conjunction_dicts(id1, id2, config)
 
@@ -297,7 +294,7 @@ class CCNF:
 
 
     def disjunction(id1: Union[int, bool], id2: Union[int, bool], config: Dict[str, bool]) -> Union[int, bool]:
-        if config['disjunction_cached_lru']:
+        if config['version_cached_memo_lru']:
             return CCNF.disjunction_lru(id1, id2, config)
         return CCNF.disjunction_dicts(id1, id2, config)
     

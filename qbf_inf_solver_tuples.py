@@ -11,9 +11,7 @@ from compactify_tuples import CCNF, compactify
 from qbf_naive_solver import naive_solver_v1
 from time import time
 import gc
-import objgraph
 from pysat.solvers import Solver
-from pysat.process import Processor
 import numpy as np
 from collections import defaultdict
 import sys
@@ -171,26 +169,7 @@ def _eliminate_variables_rec(quantifiers: List[QBlock], ccnf: Union[Tuple, bool]
         psi = CCNF.conjunction(psi, ccnf[3], config)
     else:
         # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
-        if debugging: print("Eliminating existential...")
-        if config['elim_e_disj_conj']:
-            if debugging: print("Disyunción...")
-            psi = CCNF.disjunction(ccnf[2], ccnf[1], config)
-            if debugging: print("Conjunción...")
-            psi = CCNF.conjunction(psi, ccnf[3], config)
-        else:
-            if config['parallel_elim_e_conj2_disj']:
-                if debugging: print("Conjunciones (2) en paralelo")
-                with Pool(processes=2) as pool:
-                    async_psi1 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[2], ccnf[3], config))
-                    async_psi2 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[1], ccnf[3], config))
-                    psi1, psi2 = async_psi1.get(), async_psi2.get()
-            else:
-                if debugging: print("Primera conjunción...")
-                psi1 = CCNF.conjunction(ccnf[2], ccnf[3], config)
-                if debugging: print("Segunda conjunción...")
-                psi2 = CCNF.conjunction(ccnf[1], ccnf[3], config)
-                if debugging: print("Disyunción...")
-                ccnf = CCNF.disjunction(psi1, psi2, config)
+        psi = config['f_elim_e'](ccnf, config)
     if debugging: print("Eliminated!")
     
     # Llamada recursiva para seguir eliminando variables
@@ -281,28 +260,35 @@ def _eliminate_variables_it(quantifiers: List[QBlock], ccnf: Union[Tuple, bool],
             ccnf = CCNF.conjunction(psi, ccnf[3], config)
         else:
             # No INF (C-CNF + existential quantifier), but it is PRENEX and the formula is compact
-            if debugging: print("Eliminating existential...")
-            if config['elim_e_disj_conj']:
-                if debugging: print("Disyunción...")
-                psi = CCNF.disjunction(ccnf[2], ccnf[1], config)
-                if debugging: print("Conjunción...")
-                #set_trace()
-                ccnf = CCNF.conjunction(psi, ccnf[3], config)
-            else:
-                if config['parallel_elim_e_conj2_disj']:
-                    if debugging: print("Conjunciones (2) en paralelo")
-                    with Pool(processes=2) as pool:
-                        async_psi1 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[2], ccnf[3], config))
-                        async_psi2 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[1], ccnf[3], config))
-                        psi1, psi2 = async_psi1.get(), async_psi2.get()
-                else:
-                    if debugging: print("Primera conjunción...")
-                    psi1 = CCNF.conjunction(ccnf[2], ccnf[3], config)
-                    if debugging: print("Segunda conjunción...")
-                    psi2 = CCNF.conjunction(ccnf[1], ccnf[3], config)
-                    if debugging: print("Disyunción...")
-                    ccnf = CCNF.disjunction(psi1, psi2, config)
+            ccnf = config['f_elim_e'](ccnf, config)
         if debugging: print("Eliminated!")
+
+def _elim_e_disj_conj(ccnf, config):
+    debugging = config['debugging']
+    if debugging: print("Disyunción...")
+    psi = CCNF.disjunction(ccnf[2], ccnf[1], config)
+    if debugging: print("Conjunción...")
+    #set_trace()
+    return CCNF.conjunction(psi, ccnf[3], config)
+
+def _elim_e_conj2_disj(ccnf, config):
+    debugging = config['debugging']
+    if debugging: print("Primera conjunción...")
+    psi1 = CCNF.conjunction(ccnf[2], ccnf[3], config)
+    if debugging: print("Segunda conjunción...")
+    psi2 = CCNF.conjunction(ccnf[1], ccnf[3], config)
+    if debugging: print("Disyunción...")
+    return CCNF.disjunction(psi1, psi2, config)
+
+def _parallel_elim_e_conj2_disj(ccnf, config):
+    debugging = config['debugging']
+    if debugging: print("Conjunciones (2) en paralelo")
+    with Pool(processes=2) as pool:
+        async_psi1 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[2], ccnf[3], config))
+        async_psi2 = pool.apply_async(CCNF.conjunction_serial_wrapper, (ccnf[1], ccnf[3], config))
+        psi1, psi2 = async_psi1.get(), async_psi2.get()
+    if debugging: print("Disyunción...")
+    return CCNF.disjunction(psi1, psi2, config)
 
 def reset_debugging():
     global DB_Max_v
@@ -895,7 +881,7 @@ def test_integration(config: Dict[str, bool]):
         res = None
         try:
             with time_limit(10): # Aquí aplicamos el límite de 60 segundos
-                res = inf_solver(quantifiers, clauses, config)
+                res = naive_solver_v1(quantifiers, clauses) # inf_solver(quantifiers, clauses, config)
             t1 = time()
             print(f"{'CORRECT' if res == results[filename] else 'INCORRECT'} {'SAT' if res else 'UNSAT'}")
             print(f"Time: {t1 - t0 : .4f} seconds")
@@ -951,37 +937,35 @@ if __name__ == '__main__':
         'pre_simplify_tautologies'          : True,     # Hacerlo siempre
         'iterative'                         : True,     # Hacerlo siempre (eliminate_variables y simplify)
 
-        'conjunction_direct_association'    : False,
+        'conjunction_direct_association'    : True,
         
-        'elim_e_disj_conj'                  : False,
-        'parallel_elim_e_conj2_disj'        : False,    # Solo testearlo si elim_e_disj_conj es menos eficiente (no esperable)
+        # _elim_e_conj2_disj | _elim_e_disj_conj | _parallel_elim_e_conj2_disj
+        'f_elim_e'                          : _elim_e_disj_conj,
         
-        'simplify'                          : False,    # Afecta a compactify, conjunction y disjunction
+        'simplify'                          : True,    # Afecta a compactify, conjunction y disjunction
         
-        'preprocessor'                      : False,
+        'preprocessor'                      : True,
         
-        'cached_nodes'                      : False,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
+        'cached_nodes'                      : True,    # Afecta a create_node -> compactify, simplify, conjunction, disjunction
         'equals_with_is'                    : False,     # Solo si cached is True
         
         'absorb_with_prefixes'              : False,
-        'disable_gc'                        : False,
-        'check_sat'                         : False,
+        'disable_gc'                        : True,
+        'check_sat'                         : True,
     
         'conjunction_parallel'              : False,
-        'conjunction_parallel_lazy'         : True,     # Solo aplicable si conjunction_parallel is True
+        'conjunction_parallel_lazy'         : False,     # Solo aplicable si conjunction_parallel is True
 
         'disjunction_parallel'              : False,
         'disjunction_parallel_conjs'        : False,    # Solo aplicable si disjunction_parallel is True
         'disjunction_parallel_disjs'        : False,    # Solo aplicable si disjunction_parallel is True
+        'disjunction_parallel_total'        : True,
         
-        'conjunction_cached_lru'            : False,    # Incompatible con parallel
-        'disjunction_cached_lru'            : False,    # Incompatible con parallel
-        
-        'conjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
-        'disjunction_cached_dicts'          : False,    # Excluyente con lru, es decir, los dos no pueden ser True
-
-        'conjunction_cached_dicts_ids'      : False,     # Excluyente con lru, dict, y precondición cached_nodes
-        'disjunction_cached_dicts_ids'      : False,     # Excluyente con lru, dict, y precondición cached_nodes
+        # Nota: la versión lru_cache no es compatible con config, por ser éste un dict no hasheable
+        # conjunction_serial_basic | conjunction_serial (lru) | conjunction_serial_manual | conjunction_serial_manual_ids
+        'f_conjunction_serial'              : CCNF.conjunction_serial_manual_ids,
+        # disjunction_serial_basic | disjunction_serial (lru) | disjunction_serial_manual | disjunction_serial_manual_ids
+        'f_disjunction_serial'              : CCNF.disjunction_serial_manual_ids,
 
         'version_cached'                    : False,
         'version_cached_cleanup'            : None,     # Estos solo son posibles de realizar si version_cached is True
@@ -992,38 +976,37 @@ if __name__ == '__main__':
     assert not config['debugging'], "Incorrect configuration! [1]"
     assert config['pre_simplify_tautologies'], "Incorrect configuration! [2]"
     assert config['iterative'], "Incorrect configuration! [3]" 
-    assert not config['elim_e_disj_conj'] or not config['parallel_elim_e_conj2_disj'], "Incorrect configuration [4]"
     assert config['cached_nodes'] or not config['equals_with_is'], "Incorrect configuration! [5]"
     assert not config['equals_with_is'] or not config['conjunction_parallel'], "Incorrect configuration! [6]"
     assert not config['equals_with_is'] or not config['disjunction_parallel'], "Incorrect configuration! [7]"
     assert not config['disjunction_parallel'] or (config['disjunction_parallel_conjs'] or config['disjunction_parallel_disjs']), "Incorrect configuration! [8]"
-    # Estos assert son innecesarios. Si _parallel está activo, se hará la llamada a dicha versión.
-    # Eso sí, dentro de él, creará subprocesos con la función _serial_wrapper. Es decir, 
-    # podemos decidir si en el subproceso usar memoización o no.
-    #assert not config['conjunction_parallel'] or not config['conjunction_cached_lru'], "Incorrect configuration! [9]"
-    #assert not config['conjunction_parallel'] or not config['conjunction_cached_dicts'], "Incorrect configuration! [10]"
-    #assert not config['disjunction_parallel'] or not config['disjunction_cached_lru'], "Incorrect configuration! [11]"
-    #assert not config['disjunction_parallel'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [12]"
-    assert not config['conjunction_cached_lru'] or not config['conjunction_cached_dicts'], "Incorrect configuration! [13]"
-    assert not config['disjunction_cached_lru'] or not config['disjunction_cached_dicts'], "Incorrect configuration! [14]"
-    assert not config['conjunction_cached_lru'] or not config['conjunction_cached_dicts_ids'], "Incorrect configuration! [15]"
-    assert not config['disjunction_cached_lru'] or not config['disjunction_cached_dicts_ids'], "Incorrect configuration! [16]"
-    assert not config['conjunction_cached_dicts'] or not config['conjunction_cached_dicts_ids'], "Incorrect configuration! [17]"
-    assert not config['disjunction_cached_dicts'] or not config['disjunction_cached_dicts_ids'], "Incorrect configuration! [18]"
-    assert not config['version_cached'], "Incorrect script (this is tuples) for set value cached version! [19]"
+    assert not config['disjunction_parallel'] or not config['disjunction_parallel_total'], "Incorrect configuration! [8.5]"
+    assert not config['version_cached'], "Incorrect script (this is tuples) for set value cached version! [9]"
+
+    possible_f_elim_e = [_elim_e_conj2_disj, _elim_e_disj_conj, _parallel_elim_e_conj2_disj]
+    assert config['f_elim_e'] in possible_f_elim_e, "Incorrect configuration! [10]"
+    possible_f_conj_serial = [CCNF.conjunction_serial_basic, CCNF.conjunction_serial, 
+                              CCNF.conjunction_serial_manual, CCNF.conjunction_serial_manual_ids]
+    assert config['f_conjunction_serial'] in possible_f_conj_serial, "Incorrect configuration! [11]"
+    possible_f_disj_serial = [CCNF.disjunction_serial_basic, CCNF.disjunction_serial, 
+                              CCNF.disjunction_serial_manual, CCNF.disjunction_serial_manual_ids]
+    assert config['f_disjunction_serial'] in possible_f_disj_serial, "Incorrect configuration! [12]"
     
-    #"""
+    assert config['cached_nodes'] or (config['f_conjunction_serial'] != CCNF.conjunction_serial_manual_ids), "Incorrect configuration! [13]"
+    assert config['cached_nodes'] or (config['f_disjunction_serial'] != CCNF.disjunction_serial_manual_ids), "Incorrect configuration! [14]"
+
+    """
     if len(sys.argv) != 2:
         print("ERROR: usage --> python3 qbf_inf_solver_tuples.py <name_instance in QDIMACS>", file=sys.stderr)
         sys.stderr.flush()
         sys.exit(1)
     
-    sys.setrecursionlimit(4000)
+    sys.setrecursionlimit(5000)
 
     file_path = sys.argv[1]
     nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)
     print('SAT' if inf_solver(quantifiers, clauses, config) else 'UNSAT')
-    #"""
+    """
 
     #test_renaming()
     #test_inf_solver()
@@ -1036,5 +1019,5 @@ if __name__ == '__main__':
     #test_qbfgallery2020()
     # Nota: timeout 10s no es suficiente! --> Parece que alguna eliminación más podría llegar a hacer, pero el número de nodos es enorme
     #test_qbfgallery2023()
-    #test_integration(config)
+    test_integration(config)
     #test_problematic_integration()

@@ -294,7 +294,8 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
     return execution_info
 
 if __name__ == "__main__":
-    
+    t_start_main = time.time()
+
     iterative_experimentation = True
 
     # Indicar aquí el solver
@@ -419,3 +420,5 @@ if __name__ == "__main__":
     if iterative_experimentation:
         for k,v in aggregate_data.items():
             print(f'\t{k}: {v}')
+
+    print(f'Tiempo de ejecución total: {time.time() - t_start_main} s')

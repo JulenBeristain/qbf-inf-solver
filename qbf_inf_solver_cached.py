@@ -7,16 +7,13 @@ from pdb import set_trace
 from types_qbf import *
 from qbf_parser import read_qdimacs_from_file_unchecked
 from compactify_cached import CCNF, compactify
-from qbf_naive_solver import naive_solver_v1
+#from qbf_naive_solver import naive_solver_v1
 from time import time
 import gc
-import objgraph
 from pysat.solvers import Solver
-from pysat.process import Processor
 import numpy as np
 from collections import defaultdict
 import sys
-from multiprocessing import Pool
 
 import signal
 from contextlib import contextmanager
@@ -964,21 +961,21 @@ if __name__ == '__main__':
         'pre_simplify_tautologies'          : True,     # Hacerlo siempre
         'iterative'                         : True,     # Hacerlo siempre (eliminate_variables y simplify)
 
-        'conjunction_direct_association'    : False,
+        'conjunction_direct_association'    : True,
         
-        'elim_e_disj_conj'                  : False,
+        'elim_e_disj_conj'                  : True,
         'parallel_elim_e_conj2_disj'        : None,     # Solo testearlo si elim_e_disj_conj es menos eficiente (no esperable)
         
-        'simplify'                          : False,    # Afecta a compactify, conjunction y disjunction
+        'simplify'                          : True,    # Afecta a compactify, conjunction y disjunction
         
-        'preprocessor'                      : False,
+        'preprocessor'                      : True,
         
         'cached_nodes'                      : None,     # Afecta a create_node -> compactify, simplify, conjunction, disjunction
         'equals_with_is'                    : None,     # Solo si cached is True
         
         'absorb_with_prefixes'              : False,
-        'disable_gc'                        : False,
-        'check_sat'                         : False,
+        'disable_gc'                        : True, 
+        'check_sat'                         : True, 
     
         'conjunction_parallel'              : None,
         'conjunction_parallel_lazy'         : None,     # Solo aplicable si conjunction_parallel is True
@@ -986,26 +983,24 @@ if __name__ == '__main__':
         'disjunction_parallel'              : None, 
         'disjunction_parallel_conjs'        : None,     # Solo aplicable si disjunction_parallel is True
         'disjunction_parallel_disjs'        : None,     # Solo aplicable si disjunction_parallel is True
-        
-        'conjunction_cached_lru'            : False,    # Incompatible con parallel
-        'disjunction_cached_lru'            : False,    # Incompatible con parallel
-        
-        'conjunction_cached_dicts'          : None,     # Redundantes con _lru
-        'disjunction_cached_dicts'          : None,     # Redundantes con _lru
+        'disjunction_parallel_total'        : None,
 
-        'conjunction_cached_dicts_ids'      : None,     # Redundantes con _lru
-        'disjunction_cached_dicts_ids'      : None,     # Redundantes con _lru
+        # conjunction_serial_basic | conjunction_serial (lru) | conjunction_serial_manual | conjunction_serial_manual_ids
+        'f_conjunction_serial'              : None,
+        # disjunction_serial_basic | disjunction_serial (lru) | disjunction_serial_manual | disjunction_serial_manual_ids
+        'f_disjunction_serial'              : None,
 
         'version_cached'                    : True,
         'version_cached_cleanup'            : False,
-        'version_cached_memo_lru'           : None,     # Redundantes con _lru
-        'version_cached_memo_dicts'         : None,     # Redundantes con _lru
+        # Nota: la versión lru_cache no es compatible con config, por ser éste un dict no hasheable
+        'version_cached_memo_lru'           : True,     
+        'version_cached_memo_dicts'         : None,     # Redundante con _lru
     }
 
     assert not config['debugging'], "Incorrect configuration! [1]"
     assert config['pre_simplify_tautologies'], "Incorrect configuration! [2]"
     assert config['iterative'], "Incorrect configuration! [3]"
-    assert not (config['conjunction_cached_lru'] or config['disjunction_cached_lru']) or not config['version_cached_cleanup'], "Incorrect configuration! [4]"
+    assert not config['version_cached_memo_lru'] or not config['version_cached_cleanup'], "Incorrect configuration! [4]"
     assert config['version_cached'], "Incorrect script (this is cached) for the set value non-cached version! [5]"
     
     #"""
@@ -1014,7 +1009,7 @@ if __name__ == '__main__':
         sys.stderr.flush()
         sys.exit(1)
     
-    sys.setrecursionlimit(4000)
+    sys.setrecursionlimit(5000)
 
     file_path = sys.argv[1]
     nv, nc, clauses, quantifiers = read_qdimacs_from_file_unchecked(file_path)

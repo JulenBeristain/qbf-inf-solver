@@ -236,6 +236,16 @@ INSTANCES_ITER_EXP = [
     '99.lights3_021_0_009.qdimacs',
 ]
 
+SAT_INSTANCES = [
+        '10.SAT.qdimacs_to_dimacs.cnf',
+        '135.s1269_d2_s.qdimacs',
+        '2.SAT.dimacs',
+        '3.UNSAT.dimacs',
+        '4.UNSAT.dimacs',
+        '5.UNSAT.dimacs',
+        '6.SAT.dimacs',
+        '97.k_ph_n-16.qdimacs',
+]
 
 def get_instance_info(instance_path: str) -> Dict:
     """
@@ -291,7 +301,7 @@ def get_instance_info(instance_path: str) -> Dict:
     }
 
 
-def run_solver(solver_path, instance_path, timeout_seconds, python=False):
+def run_solver_psutil(solver_path, instance_path, timeout_seconds, python=False):
     """
     Runs a QBF solver on an instance and collects metrics.
     Returns a dictionary with results.
@@ -320,8 +330,15 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
             try:
                 p = psutil.Process(process.pid)
                 # Check current memory usage of the process and its children
-                mem_info = p.memory_info()
-                current_rss_mb = mem_info.rss / (1024 * 1024)
+                # Incorrect for parallel algorithms!!!
+                #mem_info = p.memory_info()
+                #current_rss_mb = mem_info.rss / (1024 * 1024)
+                current_rss_mb = p.memory_info().rss / (1024 * 1024)
+                for child in p.children(recursive=True):
+                    try:
+                        current_rss_mb += child.memory_info().rss / (1024 * 1024)
+                    except psutil.NoSuchProcess:
+                        pass           
                 peak_memory_mb = max(peak_memory_mb, current_rss_mb)
 
                 # Get CPU times - cumulative for the process and its children
@@ -382,11 +399,15 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
         sys.stderr.flush()
         sys.exit(1)
     except Exception as e:
-        exit_status = f"SCRIPT_ERROR: {e}"
-        print(exit_status, file=sys.stderr)
-        sys.stderr.flush()
-        set_trace()
-        sys.exit(2)
+        print('=' * 50)
+        print(f'Stderr:\n{stderr}')
+        print('=' * 50)
+        #sys.exit(2)
+        solver_output = "ERROR"
+        exit_status = "ERROR"
+        total_time_wall = 2 * timeout_seconds # Penalty for timeout /
+        cpu_time_user = timeout_seconds # Penalty for timeout       |
+        cpu_time_system = timeout_seconds # Penalty for timeout     \ total_cpu_time = 2*timeout
 
     total_cpu_time = cpu_time_user + cpu_time_system
     
@@ -402,9 +423,74 @@ def run_solver(solver_path, instance_path, timeout_seconds, python=False):
     }
     return execution_info
 
-if __name__ == "__main__":
+
+def run_solver_walltime(solver_path, instance_path, timeout_seconds, python=False):
+    """
+    Runs a QBF solver on an instance and collects the spent wall time.
+    """
+    command = [solver_path, instance_path]
+    if python:
+        command = ['python3'] + command
+
+    exit_status = "UNKNOWN"
+    solver_output = "TIMEOUT" # To store stdout/stderr for debugging if needed
+    start_time_wall = time.time()
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds, check=False)
+        total_time_wall = time.time() - start_time_wall
+        
+        solver_output = result.stdout.strip() #+ result.stderr.strip()
+        assert solver_output == 'SAT' or solver_output == 'UNSAT', f"La salida del solver no es SAT o UNSAT, sino: -{solver_output}-"
     
-    iterative_experimentation = True
+        instance = os.path.basename(instance_path)
+        if solver_output == 'SAT' and RESULTS[instance] is True:
+            exit_status = 'CORRECT'
+        elif solver_output == 'UNSAT' and RESULTS[instance] is False:
+            exit_status = 'CORRECT'
+        elif RESULTS[instance] == 'TIMEOUT':
+            exit_status = "EUREKA!"
+        else:
+            exit_status = 'INCORRECT'
+
+    except subprocess.TimeoutExpired as e:
+        exit_status = "TIMEOUT"
+        total_time_wall = 2 * timeout_seconds # Penalty for timeout
+        
+    except FileNotFoundError:
+        exit_status = "SOLVER_NOT_FOUND"
+        print(exit_status, file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
+    
+    #except subprocess.CalledProcessError as e:
+    #    solver_output = "ERROR"
+    #    exit_status = "ERROR"
+    #    total_time_wall = 2*timeout_seconds
+    except Exception as e:
+        solver_output = "ERROR"
+        exit_status = "ERROR"
+        total_time_wall = 2*timeout_seconds
+        
+    
+    execution_info = {
+        "instance": os.path.basename(instance_path),
+        "solver_output": solver_output,
+        "status": exit_status,
+        "total_wall_time": round(total_time_wall, 3),
+    }
+    return execution_info
+
+
+if __name__ == "__main__":
+    t_start_main = time.time()
+
+    iterative_experimentation = False
+    sat_experimentation = False
+    error_experimentation = False
+    assert iterative_experimentation or not sat_experimentation, "Si no estamos en experimentación iterativa tampoco estamos experimentando el feature SAT-solver!"
+    assert iterative_experimentation or not error_experimentation, "Si no estamos en experimentación iterativa tampoco estamos experimentando la instancia erronea!"
+    assert not sat_experimentation or not error_experimentation, "O SAT o error experimentation!"
 
     # Indicar aquí el solver
     #solver_name, solver_path, python = "DepQBF", "depqbf", False
@@ -413,14 +499,21 @@ if __name__ == "__main__":
     if iterative_experimentation:
         solver_name, solver_path, python = "FNI_iter", "/home/julen/TFG/qbf_inf_solver_iter.py", True
     else:
-        solver_name, solver_path, python = "FNI", "home/julen/TFG/qbf_inf_solver_final.py", True
+        solver_name, solver_path, python = "FNI", "/home/julen/TFG/qbf_inf_solver_final.py", True
     
     
     instance_dir = "/home/julen/integration_tests"
     if iterative_experimentation:
-        instances = [os.path.join(instance_dir, f) for f in INSTANCES_ITER_EXP]
+        if error_experimentation:
+            instances = ['138.s15850_PR_5_90.qdimacs', '139.s38584_PR_1_2.qdimacs']
+        elif sat_experimentation:
+            instances = SAT_INSTANCES
+        else:
+            instances = INSTANCES_ITER_EXP
+        instances = [os.path.join(instance_dir, f) for f in instances]
     else:
         instances = [os.path.join(instance_dir, f) for f in os.listdir(instance_dir)]
+    #instances = [os.path.join(instance_dir, f) for f in ('138.s15850_PR_5_90.qdimacs', '139.s38584_PR_1_2.qdimacs')]
     
     timeout_s = (1 if iterative_experimentation else 15) * 60
     num_executions_per_instace = 3 if iterative_experimentation else 10 # para estabilizar resultados
@@ -432,17 +525,21 @@ if __name__ == "__main__":
         print(f"  Running {solver_name} on {os.path.basename(instance_path)}...")
 
         instance_results = []
+        total_time = 0
         for _ in range(num_executions_per_instace):
-            result = run_solver(solver_path, instance_path, timeout_s, python=python)
+            result = run_solver_psutil(solver_path, instance_path, timeout_s, python=python)
             result["solver_name"] = solver_name
             instance_results.append(result)
+            
             if result['status'] == 'TIMEOUT':
                 print("TIMEOUT! Filling the rest of the tries with this result ...")
                 remaining_tries = num_executions_per_instace - len(instance_results)
                 instance_results.extend( result for _ in range(remaining_tries) )
                 break
-
-            #print(f"    Status: {result['status']}, CPU Time: {result['total_cpu_time']}s, Peak Mem: {result['peak_memory_mb']}MB")
+            
+            total_time += result['total_wall_time']
+            if not iterative_experimentation and total_time > timeout_s:
+                break
         
         aggregate = copy.deepcopy(result)
         aggregate['total_wall_time'] = sum(r['total_wall_time'] for r in instance_results) / len(instance_results)
@@ -464,37 +561,62 @@ if __name__ == "__main__":
                 dict_writer.writerows(all_results)
             print(f"\nBenchmark results saved to {output_csv_file}")
 
+
+    # Conseguir los walltime precisos (sólo para los resueltos correctamente, no TIMEOUT, ERROR o INCORRECT)
+    for i, entry in enumerate(all_results):
+        if entry['status'] == 'CORRECT':
+            instance_path = os.path.join(instance_dir, entry['instance'])
+            instance_results = []
+            total_time = 0
+            all_correct = True
+            for _ in range(num_executions_per_instace):
+                result = run_solver_walltime(solver_path, instance_path, timeout_s, python=python)
+                instance_results.append(result)
+
+                if result['status'] != 'CORRECT':
+                    all_correct = False
+                    break
+
+                total_time += result['total_wall_time']
+                if not iterative_experimentation and total_time > timeout_s:
+                    break
+
+            if all_correct: # Debería ocurrir siempre. Sino, mantenemos el wall_time calculado previamente
+                all_results[i]['total_wall_time'] = sum(r['total_wall_time'] for r in instance_results) / len(instance_results)
+
+
     # Agregado único por cada solver de todos los datos
     num_instances = len(instances)
-    num_correct = num_incorrect = num_timeout = 0
+    num_correct = num_incorrect = num_timeout = num_error = 0
     for res in all_results:
         if res['status'] == 'CORRECT': num_correct += 1
         elif res['status'] == 'INCORRECT': num_incorrect += 1
         elif res['status'] == 'TIMEOUT': num_timeout += 1
+        elif res['status'] == 'ERROR': num_error += 1
         else:
             print(f"Instance {res['instance']} with strange exit status: {res['status']}")
             sys.exit(3)
-    per_correct, per_incorrect, per_timeout = (num / num_instances for num in (num_correct, num_incorrect, num_timeout))
+    per_correct, per_incorrect, per_timeout, per_error = (num / num_instances for num in (num_correct, num_incorrect, num_timeout, num_error))
 
-    wall_time_correct = [res['total_wall_time'] for res in all_results if res['status'] == 'CORRECT']
-    if wall_time_correct:
-        wall_time_correct_mean = statistics.mean(wall_time_correct)
-        wall_time_correct_min = min(wall_time_correct)
-        wall_time_correct_max = max(wall_time_correct)
-        wall_time_correct_median = statistics.median(wall_time_correct)
-        wall_time_correct_std_dev = statistics.stdev(wall_time_correct) if len(wall_time_correct) > 1 else 0.0
-    else:
-        wall_time_correct_mean = wall_time_correct_min = wall_time_correct_max = wall_time_correct_median = wall_time_correct_std_dev = 'None'
+    #wall_time_correct = [res['total_wall_time'] for res in all_results if res['status'] == 'CORRECT']
+    #if wall_time_correct:
+    #    wall_time_correct_mean = statistics.mean(wall_time_correct)
+    #    wall_time_correct_min = min(wall_time_correct)
+    #    wall_time_correct_max = max(wall_time_correct)
+    #    wall_time_correct_median = statistics.median(wall_time_correct)
+    #    wall_time_correct_std_dev = statistics.stdev(wall_time_correct) if len(wall_time_correct) > 1 else 0.0
+    #else:
+    #    wall_time_correct_mean = wall_time_correct_min = wall_time_correct_max = wall_time_correct_median = wall_time_correct_std_dev = 'None'
 
-    cpu_time_correct = [res['total_cpu_time'] for res in all_results if res['status'] == 'CORRECT']
-    if cpu_time_correct:
-        cpu_time_correct_mean = statistics.mean(cpu_time_correct)
-        cpu_time_correct_min = min(cpu_time_correct)
-        cpu_time_correct_max = max(cpu_time_correct)
-        cpu_time_correct_median = statistics.median(cpu_time_correct)
-        cpu_time_correct_std_dev = statistics.stdev(cpu_time_correct) if len(cpu_time_correct) > 1 else 0.0
-    else:
-        cpu_time_correct_mean = cpu_time_correct_min = cpu_time_correct_max = cpu_time_correct_median = cpu_time_correct_std_dev = 'None'
+    #cpu_time_correct = [res['total_cpu_time'] for res in all_results if res['status'] == 'CORRECT']
+    #if cpu_time_correct:
+    #    cpu_time_correct_mean = statistics.mean(cpu_time_correct)
+    #    cpu_time_correct_min = min(cpu_time_correct)
+    #    cpu_time_correct_max = max(cpu_time_correct)
+    #    cpu_time_correct_median = statistics.median(cpu_time_correct)
+    #    cpu_time_correct_std_dev = statistics.stdev(cpu_time_correct) if len(cpu_time_correct) > 1 else 0.0
+    #else:
+    #    cpu_time_correct_mean = cpu_time_correct_min = cpu_time_correct_max = cpu_time_correct_median = cpu_time_correct_std_dev = 'None'
 
     wall_time_penalized = [res['total_wall_time'] for res in all_results if res['status'] != 'INCORRECT']
     if wall_time_penalized:
@@ -535,23 +657,25 @@ if __name__ == "__main__":
         'per_incorrect': per_incorrect,
         'timeout_num': num_timeout,
         'timeout_per': per_timeout,
+        'error_num': num_error,
+        'error_per': per_error,
         
-        'wall_time_correct_s_mean':      wall_time_correct_mean,
-        'wall_time_correct_s_min':       wall_time_correct_min,
-        'wall_time_correct_s_max':       wall_time_correct_max,
-        'wall_time_correct_s_median':    wall_time_correct_median,
-        'wall_time_correct_s_std_dev':   wall_time_correct_std_dev,
+        #'wall_time_correct_s_mean':      wall_time_correct_mean,
+        #'wall_time_correct_s_min':       wall_time_correct_min,
+        #'wall_time_correct_s_max':       wall_time_correct_max,
+        #'wall_time_correct_s_median':    wall_time_correct_median,
+        #'wall_time_correct_s_std_dev':   wall_time_correct_std_dev,
         'wall_time_penalized_s_mean':    wall_time_penalized_mean,
         'wall_time_penalized_s_min':     wall_time_penalized_min,
         'wall_time_penalized_s_max':     wall_time_penalized_max,
         'wall_time_penalized_s_median':  wall_time_penalized_median,
         'wall_time_penalized_s_std_dev': wall_time_penalized_std_dev,
 
-        'cpu_time_correct_s_mean':      cpu_time_correct_mean,
-        'cpu_time_correct_s_min':       cpu_time_correct_min,
-        'cpu_time_correct_s_max':       cpu_time_correct_max,
-        'cpu_time_correct_s_median':    cpu_time_correct_median,
-        'cpu_time_correct_s_std_dev':   cpu_time_correct_std_dev,
+        #'cpu_time_correct_s_mean':      cpu_time_correct_mean,
+        #'cpu_time_correct_s_min':       cpu_time_correct_min,
+        #'cpu_time_correct_s_max':       cpu_time_correct_max,
+        #'cpu_time_correct_s_median':    cpu_time_correct_median,
+        #'cpu_time_correct_s_std_dev':   cpu_time_correct_std_dev,
         'cpu_time_penalized_s_mean':    cpu_time_penalized_mean,
         'cpu_time_penalized_s_min':     cpu_time_penalized_min,
         'cpu_time_penalized_s_max':     cpu_time_penalized_max,
@@ -565,9 +689,9 @@ if __name__ == "__main__":
         'memory_peak_mb_std_dev': memory_std_dev,
     }
 
-
     if iterative_experimentation:
         relevant_data = ['solver_name', 'instance_num', 'correct_num', 'correct_per', 'incorrect_num', 
+                         'timeout_num', 'timeout_per', 'error_num', 'error_per',
                          'wall_time_penalized_s_mean', 'cpu_time_penalized_s_mean', 
                          'memory_peak_mb_mean', 'memory_peak_mb_min', 'memory_peak_mb_max']
         aggregate_data = {k:v for k,v in aggregate_data.items() if k in relevant_data}
@@ -579,7 +703,10 @@ if __name__ == "__main__":
         dict_writer.writeheader()
         dict_writer.writerow(aggregate_data)
     print(f"\nBenchmark aggregate results saved to {aggregate_csv_file}")
-
+    
     if iterative_experimentation:
         for k,v in aggregate_data.items():
             print(f'\t{k}: {v}')
+
+    t_exec = time.time() - t_start_main
+    print(f'Tiempo de ejecución total: {t_exec / 60: .2f} min = {t_exec: .2f} s')
