@@ -356,9 +356,11 @@ def run_solver_psutil(solver_path: str, instance_path: str, timeout_seconds: Uni
     Returns:
         Dict: a dictionary with the aforementioned data
     """
-    command = [solver_path, instance_path]
     if python:
-        command = ['python3'] + command
+        solver = '.'.join(solver_path.split('/'))[:-3] # To execute as a module
+        command = ['python3', '-m', solver, instance_path]
+    else:
+        command = [solver_path, instance_path]
 
     process = None
     peak_memory_mb = 0
