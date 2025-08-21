@@ -1,0 +1,2 @@
+solver_name,instance_num,correct_num,correct_per,incorrect_num,timeout_num,timeout_per,error_num,error_per,wall_time_penalized_s_mean,cpu_time_penalized_s_mean,memory_peak_mb_mean,memory_peak_mb_min,memory_peak_mb_max
+FNI_iter,56,23,0.4107142857142857,0,32,0.5714285714285714,1,0.017857142857142856,71.41452380952381,72.69565476190476,66.2127380952381,39.91,679.14

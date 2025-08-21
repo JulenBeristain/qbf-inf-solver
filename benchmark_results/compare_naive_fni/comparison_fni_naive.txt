@@ -1,0 +1,92 @@
+================================================================================
+	Instances where NAIVE is better:
+--------------------------------------------------
+10.SAT.qdimacs
+Num_vars=68 - Num_clauses=221
+Clause_size_mean=2.90045248868778
+Num_quantifier_blocks=2
+a1 e...
+--------------------------------------------------
+--------------------------------------------------
+109.mvs.qdimacs
+Num_vars=179 - Num_clauses=453
+Clause_size_mean=2.35540838852097
+Num_quantifier_blocks=2
+an em, m>>n
+--------------------------------------------------
+--------------------------------------------------
+119.pec_adder_32bit_sat.qdimacs
+Num_vars=815 - Num_clauses=1717
+Clause_size_mean=2.70762958648806
+Num_quantifier_blocks=5
+e2 a1 e2 a1 e...
+--------------------------------------------------
+--------------------------------------------------
+12.SAT.qdimacs
+Num_vars=158 - Num_clauses=543
+Clause_size_mean=2.86372007366483
+Num_quantifier_blocks=2
+a1 e...
+--------------------------------------------------
+--------------------------------------------------
+13.UNSAT.qdimacs
+Num_vars=262 - Num_clauses=915
+Clause_size_mean=2.86994535519126
+Num_quantifier_blocks=2
+a2 e...
+--------------------------------------------------
+================================================================================
+	Instances where FNI (or INF) is better:
+--------------------------------------------------
+114.p5-5.pddl_planlen=2.qdimacs
+Num_vars=180 - Num_clauses=1202
+Clause_size_mean=2.19217970049917
+Num_quantifier_blocks=3
+en a5 em, m > n
+--------------------------------------------------
+--------------------------------------------------
+140.segfault.qdimacs
+Num_vars=66 - Num_clauses=19
+Clause_size_mean=7.78947368421053
+Num_quantifier_blocks=3
+e2 am en, m >> n
+--------------------------------------------------
+--------------------------------------------------
+24.biubug.qdimacs
+Num_vars=401 - Num_clauses=258
+Clause_size_mean=4.22480620155039
+Num_quantifier_blocks=7
+e4 a47 e6 a47 e3 a46 e...
+--------------------------------------------------
+--------------------------------------------------
+39.bug9.qdimacs
+Num_vars=76 - Num_clauses=36
+Clause_size_mean=3.72222222222222
+Num_quantifier_blocks=2
+am en, m >> n
+--------------------------------------------------
+
+================================================================================
+	Conclusions:
+
+* Even though the Naive solver solves one instance more than the INF solver, 
+  it is not the case that Naive can solve every instance that INF solves plus
+  an additional one; i.e., they differ in which instances they can solve efficiently.
+
+* More specifically, the rough size of the instances don't determine which one
+  is more efficient. The critical factor is the number and the order of the 
+  universal quantifiers.
+  
+  * The Naive solver outstands the INF solver where we have
+    few universal quantifiers and they are as outwards (leftwards) as possible. Why?
+    Because that way it rapidly arrives to the base case of a unique existential
+	block, where it can use an efficient SAT solver from PySAT. That way, these
+	kind of instances are just equivalent to solve a few SAT problems which are not
+	so big (for SAT standards).
+
+  * On the other hand, the INF solver is not so good with these kind of instances 
+    because, precisely, the formula spends most of the time out of the Inductive 
+	Normal Form, because the innermost quantifiers are existential. That way, it 
+	has to perform lots of disjunctions, which are the bottleneck of the algorithm
+	and much more expensive than conjunctions. The instances where the INF solver 
+	is better are those where we have more universally quantified variables.

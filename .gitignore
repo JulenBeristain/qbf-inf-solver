@@ -40,17 +40,3 @@ venv.bak/
 # coverage
 .coverage
 # Other files
-Memoria/
-QBF.pdf
-QBF2.pdf
-TODO.txt
-ejemplo_gestion_memoria_TFG.pdf
-bica/
-klieber2017-qdimacs.zip
-qdimacs.tar.xz
-qdimacs20.tar.zst
-integration-tests/
-depqbf_script.py
-integration_results/
-obtain_results.py
-benchmark_results/

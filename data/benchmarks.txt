@@ -1,0 +1,89 @@
+### Interesting links to play with in the future
+
+# Newcomer to SAT: (for example, a video series with a SAT solver in C)
+https://www.satlive.org/newcomer/ (1)
+
+-------------------------------------------------------------------------------------------
+
+### SAT instances (cnf, but not quantified)
+
+# Implementation of the SAT from the interesting tutorial above
+https://github.com/arminbiere/satch/tree/master/cnfs (1)
+
+# Also check the instances we saw in MAC
+
+# SAT 2023
+Usage Example: wget --content-disposition -i track_main_2023.uri
+
+# SAT 2024
+https://zenodo.org/records/13379892 (4.3 GB)  
+Usage Example: wget --content-disposition -i track_main_2024.uri
+
+# VLSAT (Very Large SAT)
+https://cadp.inria.fr/resources/vlsat/
+
+-------------------------------------------------------------------------------------------
+
+### QBF instances
+
+## Searching in the libraries that come with the source codes of QBF solvers
+
+# RAReQS
+https://sat.inesc-id.pt/~mikolas/sw/areqs/ (sources)
+
+# GhostQ (2014)
+https://www.wklieber.com/ghostq/
+
+# QuABS: a lot of QCIR instances
+https://github.com/ltentrup/quabs/tree/master/test
+
+# Nenofex (QBF solver linked to DepQBF)
+- The formulas we can find are trivial and very small. Not worth considering as Combinational  
+  benchmarks.  
+https://github.com/lonsing/nenofex/tree/master/test
+
+## Searching for Benchmarks
+
+# Generated Combinational Equivalence Benchmarks (2017)
+https://www.cs.cmu.edu/~wklieber/bench-sat2017/readme.html
+
+# QBFGallery 2023 (benchmark sets of the recent QBFEval events, qbflib.org currently not available)  
+  (a.k.a, QBFLib)  
++ We can also find the results of that competition  
+https://qbf23.pages.sai.jku.at/gallery/
++ More results from that competition:  
+https://fmv.jku.at/seidl/qbfeval12r2/
+
+# QBF International Workshop 2013
+- One of the slides explaining a benchmark type included a link to a page with download links  
+https://toss.sourceforge.net/reductGen.html  
++ The same paper indicates another link where simple games are encoded in .toss format, which must be  
+  converted to QDIMACS using the "server" (translator program) they also provide  
+https://toss.sourceforge.net/gameGen.html  
+- I have not seen other papers offering more benchmarks publicly  
+https://fmv.jku.at/qbf2013/program.html  
++ Even more benchmarks in the associated QBFGallery 2013 page  
+  UNFORTUNATELY THE LINKS NO LONGER WORK (except for the .jar for random formula selection)  
+https://www.kr.tuwien.ac.at/events/qbfgallery2013/results.html (last two sections:  
+Newly Submitted Formulas and Formula Sets Used for Experiments)
+
+# http://www.qbfeval.org/ DOWN!!! (Supposedly the main link...)
+
+# Original integration tests in the CADET solver's repository
+https://github.com/MarkusRabe/cadet/tree/master/integration-tests
+
+-------------------------------------------------------------------------------------------
+Summary:
+
+- To test that everything works, I will use the limited instances of RAReQS and GhostQ  
+  (directory data/Test_works).  
+
+- For the actual experimentation, we have used the integration tests of CADET's repository  
+  (directory data/integration-tests). They are useful to confirm the correctness of the 
+  solvers and some of them are big enough to test the memory and time efficiencies too.  
+
+- Later on, the most interesting benchmarks are those from QBFGallery2023, followed by  
+  Generated Combinational Equivalence Benchmarks (2017), and the somewhat more limited examples  
+  from QBF International Workshop 2013 (QuABS also has quite a few QCIR instances). From  
+  these instances, we have collected additional sets in the .zip and .tar.xz/zst files  
+  (not used during experimentation).
