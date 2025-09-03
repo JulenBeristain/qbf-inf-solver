@@ -40,3 +40,7 @@ venv.bak/
 # coverage
 .coverage
 # Other files
+# Extra instances, now stored in Drive due to their huge size (GitHub doesn't accept more than 100MB per file)
+data/qdimacs20.tar.zst
+data/qdimacs.tar.xz
+data/klieber2017-qdimacs.zip

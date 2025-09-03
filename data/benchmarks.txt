@@ -72,6 +72,10 @@ Newly Submitted Formulas and Formula Sets Used for Experiments)
 # Original integration tests in the CADET solver's repository
 https://github.com/MarkusRabe/cadet/tree/master/integration-tests
 
+
+# Drive containing klieber2017-qdimacs.zip, qdimacs.tar.xz and qdimacs20.tar.zst
+https://drive.google.com/drive/folders/1qaTnguLc7L74Yu5LhG0aJMSEe_KzH3NC?usp=sharing
+
 -------------------------------------------------------------------------------------------
 Summary:
 
