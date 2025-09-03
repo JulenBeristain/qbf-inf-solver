@@ -11,7 +11,7 @@ import sys
 from .cnf_preprocessor import rename_variables
 from .types_qbf import *
 from .qbf_parser import read_qdimacs_from_file_unchecked
-from .regularize_final import regularize, conjunction, disjunction
+from .regularize_final import regularize, conjunction, disjunction, cleanup_cache_nodes, num_cached_nodes
 
 ##############################################################################################
 ### SOLVER USING INDUCTIVE NORMAL FORM
@@ -35,10 +35,17 @@ def _eliminate_variables(quantifiers: List[QBlock], rcnf: Union[Tuple, bool]) ->
     Returns:
         bool: true iff the QBF instance composed by quantifiers and clauses is satisfiable (equivalent to True).
     """
+    #previous_nodes = 0
     while True:
         if rcnf is True or rcnf is False:
             return rcnf
         
+        # Just in a little final test, not in the principal experimentation. As expected, more
+        # real time needed if we want to save some memory.
+        #if num_cached_nodes() - previous_nodes > 1000:
+        #    cleanup_cache_nodes(rcnf)
+        #    previous_nodes = num_cached_nodes()
+
         # We remove the variable, but we need to find it first
         # While loop needed in case that, due to optimizations, the rcnf tree has lost not only the root’s variable
         while rcnf[0] != quantifiers[-1][1].pop():

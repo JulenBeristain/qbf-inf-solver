@@ -53,7 +53,7 @@ def _eliminate_tautological_clauses(clauses: CNF_Formula) -> int:
 
 # Note: these are applicable to ordered CNFs too.
 
-def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[PositiveInt, Quantifier]) -> Optional[bool]:
+def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[PositiveInt, Quantifier]) -> Tuple[Optional[bool], bool]:
     """
     Function that performs unit propagation in case of existentially quantified formulas. I.e., if we find
     a clause with a unique literal whose variable is existentially quantified, we assign the value that makes
@@ -68,29 +68,33 @@ def _unit_propagation(clauses: CNF_Formula, vars2quant: Dict[PositiveInt, Quanti
 
     Returns:
         Optional[bool]: returns False if the formula is simplified to it, by means of obtaining an empty clause.
+        bool: True iff a simplification has happened.
     """
+    is_simplified = False
     i = len(clauses) - 1
     while i >= 0:
         clause = clauses[i]
-        is_unit_clause = len(clause) == 1
-        #set_trace()
-        v = clause[0]
-        is_existential_var = vars2quant[abs(v)] == 'e'
-        
-        if is_unit_clause and is_existential_var:
-            j = len(clauses) - 1
-            while j >= 0:
-                if v in clauses[j]:
+        if len(clause) == 1 and vars2quant[abs(clause[0])] == 'e':
+            is_simplified = True
+            lit = clause[0]
+            
+            for j in reversed(range(len(clauses))):
+                clause = clauses[j]
+                
+                if lit in clause:
                     clauses.pop(j)
-                elif -v in clauses[j]:
-                    clauses[j].remove(-v)
-                    if not clauses[j]:
-                        return False
-                j -= 1
-
-            i = len(clauses) # - 1 is done outside of the 'if' 
-
+                    
+                elif -lit in clause:
+                    clause.remove(-lit)
+                    if not clause:
+                        return (False, True)
+                        
+            i = len(clauses)
+            
         i -= 1
+    
+    return (None, is_simplified)  
+    
 
 def _any_all_universal_clause(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> bool:
     """
@@ -112,7 +116,7 @@ def _any_all_universal_clause(clauses: CNF_Formula, vars2quant: Dict[int, Quanti
             return True
     return False
 
-def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Optional[bool]:
+def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Tuple[Optional[bool], bool]:
     """
     Function that for every variable checks if the variable has always the same polarity in all the literals
     where it appears in clauses. If that is the case, it can be simplified depending on its quantification:
@@ -128,8 +132,13 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Option
 
     Returns:
         Optional[bool]: returns False if the formula is simplified to it, by means of obtaining an empty clause.
+        bool: returns True iff some simplification has happened.
     """
-    for v in vars2quant:
+    is_simplified = False
+    variables = set(vars2quant.keys())
+    while variables:
+        v = variables.pop()
+        
         # polarities == ( [[i,j] where clauses[i,j] == v],  [[i',j'] where clauses[i',j'] == -v])
         polarities = ([], [])
         for i in range(len(clauses)):
@@ -144,26 +153,34 @@ def _polarity(clauses: CNF_Formula, vars2quant: Dict[int, Quantifier]) -> Option
                     polarities[1].append([i,j])
                     break
         
-        if len(polarities[0]) == 0:
+        if len(polarities[0]) == 0 and len(polarities[1]) == 0:
+            continue # Quantified variable that doesn't appear in the formula (for example if they have been simplified)
+        elif len(polarities[0]) == 0:
             positions = polarities[1]
         elif len(polarities[1]) == 0:
             positions = polarities[0]
         else:
-            # Either the case of a quantified variable that doesn't appear in the clauses
-            # or the case of a variable with both polarities
-            continue
+            continue # Variable with both polarities
+
+        is_simplified = True
 
         if vars2quant[v] == 'e':
             # With reversed we don't need to keep the number of removed clauses, because clause_i are ascendent (so descendent when reversed)
             for clause_i, lit_i in reversed(positions):
-                clauses.pop(clause_i)
+                removed_clause = clauses.pop(clause_i)
+                removed_clause.pop(lit_i)
+                variables.update(map(abs, removed_clause)) # Include the extra variables that might have lost all literals of a particular polarity
+            
         else:
             assert vars2quant[v] == 'a', "Cuantificador desconocido !!!"
             # Since in each clause v only appears once (like v or -v), there is no index problems with pop
             for clause_i, lit_i in positions:
                 clauses[clause_i].pop(lit_i)
                 if not clauses[clause_i]:
-                    return False
+                    return (False, True)
+                # Here we do not need to include more variables because only the removed variable's literals were removed
+    
+    return (None, is_simplified)
 
 ##############################################################################################
 ### PREPROCESSOR FOR UNORDERED CNFs ##########################################################
@@ -193,12 +210,20 @@ def preprocess(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Optional[bool
 
     # See preprocess_ordered below for a complete explanation of the order of the simplifications.
 
-    # In place modification to clauses
-    if _polarity(clauses, vars2quant) is False:
-        return False
-    # In place modification to clauses
-    if _unit_propagation(clauses, vars2quant) is False:
-        return False
+    while True:
+        potential_false, any_simplification_polarity = _polarity(clauses, vars2quant)
+        if potential_false is False:
+            return False
+        
+        potential_false, any_simplification_unit_propagation = _unit_propagation(clauses, vars2quant)
+        if potential_false is False:
+            return False
+
+        # We do not need any_simplification_polarity because we do all those kinds of simplifications
+        # in _polarity iteratively until there is no more a variable with a single polarity. So the 
+        # decision to follow with this loop depends uniquely in if there has been any unit_propagation.
+        if any_simplification_unit_propagation:
+            break
     
     if _any_all_universal_clause(clauses, vars2quant):
         return False
@@ -313,6 +338,12 @@ def absorb_with_prefixes(clauses: CNF_Formula) -> int:
     by their smallest prefix in clauses.
     
     Note: idempotence is a concrete case of absortion.
+
+    Args:
+        clauses (CNF_Formula): the formula we apply the absorbtion preprocessing to
+
+    Returns:
+        int: the number of removed clauses.
     """
     num = 0
     i = len(clauses) - 1
@@ -324,6 +355,39 @@ def absorb_with_prefixes(clauses: CNF_Formula) -> int:
             num += 1
         i -= 1
     return num
+
+# Note: this complete version of the preprocessor that takes advantage of the absorbtion property
+#   has only been used in a little final test, not in the principal experimentation.
+def absorbtion(clauses: CNF_Formula) -> None:
+    """
+    This function applies the preprocessing based on the absorbtion, conmutatitivity and
+    agrupation properties. Considering clauses as sets, if we find a clause that is a subset
+    of other clauses, the biggest ones can be removed. The modification of the clauses is done
+    in-place.
+
+    Args:
+        clauses (CNF_Formula): the formula we apply the absorbtion preprocessing to
+    """
+    num_clauses = len(clauses)
+    removed_clauses = [False] * num_clauses
+    sets = list(map(set, clauses))
+    
+    for i in range(num_clauses):
+        if removed_clauses[i] is True:
+            continue
+        
+        reference = sets[i]
+        for j in range(num_clauses):
+            if (i == j) or (removed_clauses[i] is True):
+                continue
+            
+            if reference.issubset(sets[j]):
+                removed_clauses[j] = True
+    
+    for i in reversed(range(num_clauses)):
+        if removed_clauses[i]:
+            clauses.pop(i)
+
 
 ##############################################################################################
 ### ORDERED VERSIONS OF THE TRIVIAL CNF SIMPLIFICATIONS ######################################
@@ -409,36 +473,35 @@ def preprocess_ordered(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Optio
        universal variables -> False  
 
     (3) does not modify the clauses, it only performs a check. Therefore, it does not simplify  
-    the formula in a way that enables further simplification by other transformations.  
+    the formula in a way that enables further simplification by other transformations. Therefore,
+    we can do this check only once at the end of the preprocessing step. 
 
-    (2) may cause more unit clauses to appear iteratively, so it must be executed multiple times.  
-    It may also cause clauses with only universal variables to appear by removing existential  
-    variables. Therefore, it is convenient to run it before (3). On the other hand, when detecting  
-    a variable in a unit clause, all its occurrences are removed from the formula. Thus, if that  
-    variable had the same polarity throughout the formula, the formula is simplified in the same  
-    way as in (1). However, running (2) first does not help (1), since (2) removes all occurrences  
-    of a variable and not just literals of one particular polarity, so it does not create variables  
-    that previously did not have uniform polarity and now do.  
-
-    (1) can overlap with (2) in the case mentioned above. But, regarding universal variables, it may  
-    create new unit clauses of existential variables, so it is convenient to run it before (2).  
-    Furthermore, if the removed existential variable was in a clause with other universal variables  
-    (or alone, resulting in False due to an empty clause), the remaining clause will still consist  
-    solely of universal variables, so (3) is unaffected.  
-
-    In conclusion, the order to avoid multiple iterative calls to the same simplification without  
-    losing potential simplifications is 1-2-3, where (2) is iterative only with itself.  
-                                    _  
-                                   \ /  
-    Graph of simplifications:  1 -> 2 -> 3
+    (1) and (2) can remove clauses, which may cause the elimination of literals that correspond
+    to other variables other than the one the elimination of clauses is based on. Therefore, they
+    can produce that variables that initially had two polarities, now have only one. Additionally,
+    they can remove literals too, potentially creating new unit clauses. Therefore, these two 
+    feedback recursevely to each other. Therefore, we have to appy them until no more simplification
+    is available. 
+    
+    Note: the feedback between unit-propagation and polarity has been applied only in a little final 
+        test. In the principal experimentation we were calling to polarity only once at the 
+        beginning, and then we called to unit_propagation (which has feedback with itself).
     """
+    while True:
+        
+        potential_false, any_simplification_polarity = _polarity(clauses, vars2quant)
+        if potential_false is False:
+            return False
+        
+        potential_false, any_simplification_unit_propagation = _unit_propagation(clauses, vars2quant)
+        if potential_false is False:
+            return False
 
-    # In place modification to clauses
-    if _polarity(clauses, vars2quant) is False:
-        return False
-    # In place modification to clauses
-    if _unit_propagation(clauses, vars2quant) is False:
-        return False
+        # We do not need any_simplification_polarity because we do all those kinds of simplifications
+        # in _polarity iteratively until there is no more a variable with a single polarity. So the 
+        # decision to follow with this loop depends uniquely in if there has been any unit_propagation.
+        if not any_simplification_unit_propagation:
+            break
     
     if _any_all_universal_clause(clauses, vars2quant):
         return False

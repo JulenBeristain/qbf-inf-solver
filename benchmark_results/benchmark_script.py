@@ -570,7 +570,7 @@ if __name__ == "__main__":
         solver_name, solver_path, python = "FNI", "src/qbf_inf_solver_final.py", True
     
     
-    # Note: if the directory in the server is different change thi
+    # Note: if the directory in the server is different change this
     instance_dir = "data/integration-tests"
     if iterative_experimentation:
         if error_experimentation:
@@ -619,18 +619,6 @@ if __name__ == "__main__":
         
         print(f"    Status: {aggregate['status']}, Wall Time: {aggregate['total_wall_time']}, CPU Time: {aggregate['total_cpu_time']}s, Peak Mem: {aggregate['peak_memory_mb']}MB")
 
-    # Save results to a CSV file
-    if not iterative_experimentation:
-        output_csv_file = f"{solver_name}_benchmark_results.csv"
-        if all_results:
-            keys = all_results[0].keys()
-            with open(output_csv_file, 'w', newline='') as output_file:
-                dict_writer = csv.DictWriter(output_file, fieldnames=keys)
-                dict_writer.writeheader()
-                dict_writer.writerows(all_results)
-            print(f"\nBenchmark results saved to {output_csv_file}")
-
-
     # Conseguir los walltime precisos (sólo para los resueltos correctamente, no TIMEOUT, ERROR o INCORRECT)
     for i, entry in enumerate(all_results):
         if entry['status'] == 'CORRECT':
@@ -652,6 +640,18 @@ if __name__ == "__main__":
 
             if all_correct: # Debería ocurrir siempre. Sino, mantenemos el wall_time calculado previamente
                 all_results[i]['total_wall_time'] = sum(r['total_wall_time'] for r in instance_results) / len(instance_results)
+
+    # Save results to a CSV file
+    if not iterative_experimentation:
+        output_csv_file = f"benchmark_results/{solver_name}_benchmark_results.csv"
+        if all_results:
+            keys = all_results[0].keys()
+            with open(output_csv_file, 'w', newline='') as output_file:
+                dict_writer = csv.DictWriter(output_file, fieldnames=keys)
+                dict_writer.writeheader()
+                dict_writer.writerows(all_results)
+            print(f"\nBenchmark results saved to {output_csv_file}")
+
 
 
     # Agregado único por cada solver de todos los datos
@@ -765,7 +765,7 @@ if __name__ == "__main__":
                          'memory_peak_mb_mean', 'memory_peak_mb_min', 'memory_peak_mb_max']
         aggregate_data = {k:v for k,v in aggregate_data.items() if k in relevant_data}
 
-    aggregate_csv_file = f"{solver_name}_benchmark_aggregate.csv"
+    aggregate_csv_file = f"benchmark_results/{solver_name}_benchmark_aggregate.csv"
     keys = aggregate_data.keys()
     with open(aggregate_csv_file, 'w', newline='') as output_file:
         dict_writer = csv.DictWriter(output_file, fieldnames=keys)

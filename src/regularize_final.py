@@ -13,7 +13,6 @@ from .types_qbf import *
 ##########################################################################################
 ### NODE CREATION ########################################################################
 
-
 @lru_cache(maxsize=None)
 def create_node(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tuple, bool], absTree: Union[Tuple, bool]) -> Tuple:
     """
@@ -30,6 +29,70 @@ def create_node(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tupl
     """
     return (v, negTree, posTree, absTree)
 
+
+
+cache_nodes: Dict[Tuple, Tuple] = {}
+
+def create_node_manual(v: PositiveInt, negTree: Union[Tuple, bool], posTree: Union[Tuple, bool], absTree: Union[Tuple, bool]) -> Tuple:
+    """
+    Function to create nodes and cache them manually in a dict, so no formula is repeated in memory.
+
+    Args:
+        v (PositiveInt): the variable of the node (the one of the root node for the current subformula).
+        negTree (Tuple | bool): the node that is the root of the first subtree, which is the subformula that contains ¬v, or True/False if there is none.
+        posTree (Tuple | bool): same as negTree, but for the second subtree, the subformula that contains +v.
+        absTree (Tuple | bool): same as negTree, but for the third subtree, the subformula that doesn't contain v.
+        
+    Returns:
+        Tuple: the created new node, a 4-tuple with the main arguments.
+    """
+    node = (v, negTree, posTree, absTree)
+    global cache_nodes
+    node_in_cache = cache_nodes.get(node)
+    if node_in_cache is None:
+        cache_nodes[node] = node
+        return node
+    else:
+        return node_in_cache
+
+
+def traversed_nodes(tree: Tuple, set_nodes: Set[Tuple]) -> None:
+    """
+    Function that completes the set of nodes given as the parameter with the nodes 
+    that can be reached starting the search from the given root node.
+    
+    Args:
+        tree (Tuple): root node from which the search begins
+        set_nodes (Set[Tuples]): the set to be completed with the nodes that were found
+    """
+    if tree is True or tree is False:
+        return
+    set_nodes.add(tree)
+    traversed_nodes(tree[1], set_nodes)
+    traversed_nodes(tree[2], set_nodes)
+    traversed_nodes(tree[3], set_nodes)
+
+def cleanup_cache_nodes(root: Tuple) -> None:
+    """
+    Function that removes the nodes that can not be reached from the given root node.
+    Nodes are stored in the global cache `cache_nodes`.
+    
+    Args:
+        root (Tuple): the tuple that represents the root node of the formula in R-CNF.
+    """
+    traversable = set()
+    traversed_nodes(root, traversable)
+
+    global cache_nodes
+    cache_nodes = { node:node for node in cache_nodes if node in traversable }
+
+def num_cached_nodes() -> int:
+    """
+    Function that returns the number of nodes currently stored in the cache of nodes.
+    """
+    global cache_nodes
+    return len(cache_nodes)
+
 ##########################################################################################
 ### CLEAN CACHES #########################################################################
 
@@ -40,6 +103,8 @@ def clean_caches() -> None:
     create_node.cache_clear()
     conjunction_cache.clear()
     disjunction_cache.clear()
+    global cache_nodes
+    cache_nodes.clear()
 
 ###########################################################################################
 ### CONJUNCTION ###########################################################################
@@ -92,7 +157,7 @@ def conjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool]) -> Union[T
             conjunction_cache[(tree1, tree2)] = conj_abs
             return conj_abs # Ya sea True o Tuple
         
-        phi = create_node(tree1[0], conj_neg, conj_pos, conj_abs)
+        phi = create_node_manual(tree1[0], conj_neg, conj_pos, conj_abs)
         res = simplify_rcnf(phi)
         conjunction_cache[(tree1, tree2)] = res
         return res
@@ -103,7 +168,7 @@ def conjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool]) -> Union[T
         conjunction_cache[(tree1, tree2)] = False
         return False
 
-    phi = create_node(tree1[0], tree1[1], tree1[2], conj_abs)
+    phi = create_node_manual(tree1[0], tree1[1], tree1[2], conj_abs)
     res = simplify_rcnf(phi)
     conjunction_cache[(tree1, tree2)] = res
     return res
@@ -169,7 +234,7 @@ def disjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool]) -> Union[T
             disjunction_cache[(tree1, tree2)] = phi_3_
             return phi_3_ # Ya sea True o Tuple
         
-        phi = create_node(tree1[0], phi_14_, phi_24_, phi_3_)
+        phi = create_node_manual(tree1[0], phi_14_, phi_24_, phi_3_)
         res = simplify_rcnf(phi)
         disjunction_cache[(tree1, tree2)] = res
         return res
@@ -189,7 +254,7 @@ def disjunction(tree1: Union[Tuple, bool], tree2: Union[Tuple, bool]) -> Union[T
         disjunction_cache[(tree1, tree2)] = disj_abs
         return disj_abs # Ya sea True o Tuple
     
-    phi = create_node(tree1[0], disj_neg, disj_pos, disj_abs)
+    phi = create_node_manual(tree1[0], disj_neg, disj_pos, disj_abs)
     res = simplify_rcnf(phi)
     disjunction_cache[(tree1, tree2)] = res
     return res
@@ -227,12 +292,12 @@ def simplify_rcnf(tree: Union[Tuple, bool]) -> Union[Tuple, bool]:
         
         # First condition to avoid infinite iteration when phi_1 = phi_3 = True
         if (tree[1] is not True) and (tree[1] is tree[3]):
-            tree = create_node(tree[0], True, tree[2], tree[3])
+            tree = create_node_manual(tree[0], True, tree[2], tree[3])
             continue
 
         # First condition to avoid infinite iteration when phi_2 = phi_3 = True
         if (tree[2] is not True) and (tree[2] is tree[3]):
-            tree = create_node(tree[0], tree[1], True, tree[3])
+            tree = create_node_manual(tree[0], tree[1], True, tree[3])
             continue
         
         return tree
@@ -244,7 +309,8 @@ from .cnf_preprocessor import (
     eliminate_tautological_clauses_ordered,
     eliminate_tautological_variables_ordered,
     preprocess_ordered, 
-    cmp_clauses
+    cmp_clauses,
+    absorbtion
 ) 
 
 def regularize(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Union[Tuple, bool]:
@@ -264,6 +330,9 @@ def regularize(clauses: CNF_Formula, quantifiers: List[QBlock]) -> Union[Tuple, 
     Returns:
         Tuple | bool: the ternary tree that represents the RCNF which is equivalent to the CNF formula in clauses.
     """
+    # Only for the final tests
+    #absorbtion(clauses) # Marginally worse, and it makes the algorithm more complex. So better to remove it.
+    
     # First, we order each clause considering absolute values (we assume that v and -v are not in the same clause, because
     # then it would be a tautology)
     for c in clauses:
@@ -345,6 +414,6 @@ def _regularize(clauses: CNF_Formula) -> Union[Tuple, bool]:
     if negTree is True and posTree is True:
         return absTree # Ya sea True o Tuple
     
-    phi = create_node(vn, negTree, posTree, absTree)
+    phi = create_node_manual(vn, negTree, posTree, absTree)
     return simplify_rcnf(phi)
 

@@ -1,0 +1,32 @@
+===========================================================================
+=  ORIGINAL FINAL VERSION 												  =
+===========================================================================
+
+Num_corrects = 127; Num_timeouts = 28
+
+
+===========================================================================
+=  IMPROVED CNF_PREPROCESSOR (FEEDBACK BETWEEN POLARITY AND UNIT-CLAUSES) =
+===========================================================================
+
+Num_corrects = 127; Num_timeouts = 28
+
+Marginally worse times (see instances 114 and 41).
+
+===========================================================================
+=  USE OF THE COMPLETE VERSION OF ABSORBTION							  =
+===========================================================================
+
+Num_corrects = 127; Num_timeouts = 28
+
+Marginally worse times (see instances 114 and 41).
+
+
+===========================================================================
+=  MANUAL CACHING OF NODES AND CLEANUP 									  =
+===========================================================================
+
+Num_corrects = 126; Num_timeouts = 29
+
+The number of corrects increases to 127 if the timeout is also extended to
+15 seconds instead of 10 seconds, due to instance 114.

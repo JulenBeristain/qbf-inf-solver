@@ -36,30 +36,32 @@ considering all the differences too).
 
     // Parallelization
     // NOTE: memory used in parallel versions does not add up sub-process memory.
+    // NOTE: from now on, we are using PySAT to solve the 8 SAT instances. So, to compare fairly with the configuration 9, we have to subtract
+    //		 8 to the number of correctly solved instances.
     "11.A" : ["Parallelize conjunction (also those from disj_serial) without lazyness (DISABLED equals_with_is)",
-           "24 Correct; 85MB memory (max 887MB); WT_mean=69s; Errors=1", "BETTER"],
+           "24 (-8 = 16) Correct; 85MB memory (max 887MB); WT_mean=69s; Errors=1", "WORSE than 9"],
     "11.B" : ["Parallelize conjunction trying to apply lazyness (DISABLED equals_with_is, modifications to kill subprocesses but some remain alive)",
-           "24 Correct; 81MB memory (max 850MB); WT_mean=69s; Errors=2+Dead_processes", "WORSE"],
+           "24 (-8 = 16) Correct; 81MB memory (max 850MB); WT_mean=69s; Errors=2+Dead_processes", "WORSE than 9"],
     "11.C" : ["Parallelize conjunction without lazyness and without caching nodes (disjunction and subprocesses should worsen)",
-           "24 Correct; 140MB memory (max 1.9GB); WT_mean=69s; Errors=1", "WORSE (Memory)"],
+           "24 (-8 = 16) Correct; 140MB memory (max 1.9GB); WT_mean=69s; Errors=1", "WORSE than 9 (and more memory usage)"],
 
     "12.A" : ["Parallelize conjunction in disjunction (DISABLED conjunction parallelization, ENABLED cached nodes)",
-           "23 Correct; 66MB memory (max 680MB); WT_mean=71s; Errors=1", "BETTER (than 9)"],
+           "23 (-8 = 15) Correct; 66MB memory (max 680MB); WT_mean=71s; Errors=1", "WORSE than 9"],
     "12.B" : ["Parallelize disjunction in disjunction (DISABLED conjunction parallelization (both), ENABLED cached nodes)",
-           "26 Correct; 66MB memory (max 269MB); WT_mean=65s; Errors=1", "BETTER"],
+           "26 (-8 = 18) Correct; 66MB memory (max 269MB); WT_mean=65s; Errors=1", "EQUAL to 9"],
     "12.C" : ["Parallelize conj and disj in disjunction (DISABLED conjunction parallelization, ENABLED cached nodes)",
-           "19 Correct; 66MB memory (max 268MB); WT_mean=80s; Errors=0", "WORSE"],
+           "19 (-8 = 11) Correct; 66MB memory (max 268MB); WT_mean=80s; Errors=0", "WORSE"],
     "12.D" : ["Full disjunction parallelization (DISABLED conjunction parallelization, ENABLED cached nodes)",
-           "26 Correct; 65MB memory (max 268MB); WT_mean=65s; Errors=0", "WORSE (since some processes do not die immediately)"],
+           "26 (-8 = 18) Correct; 65MB memory (max 268MB); WT_mean=65s; Errors=0", "EQUAL to 9 (but worse since some processes do not die immediately)"],
 
     "13.A" : ["Parallelize conjunction (without lazyness) and disjunction (only disj, and now not the conj from disj_serial) (ENABLED cached nodes)",
-           "26 Correct; 98MB memory (max 495MB); WT_mean=65s; Errors=0", "SAME (as Disj-disj, more memory, processes don’t die immediately)"],
+           "26 (-8 = 18) Correct; 98MB memory (max 495MB); WT_mean=65s; Errors=0", "SAME (as Disj-disj, more memory, processes don’t die immediately)"],
     "13.B" : ["Parallelize conjunction (without lazyness) and disjunction (only conjs) (ENABLED cached nodes)",
-           "23 Correct; 79MB memory (max 878MB); WT_mean=71s; Errors=0", "WORSE (also, some processes don’t die)"],
+           "23 (-8 = 15) Correct; 79MB memory (max 878MB); WT_mean=71s; Errors=0", "WORSE (also, some processes don’t die)"],
 
     // Memoization of results of boolean operations
     "14": ["Serial Memo Manual dicts (NO PARALLELIZATION and with EQUALS_WITH_IS)",
-           "27 Correct; 187MB memory (max 1.2GB); WT_mean=63s; Errors=0", "BETTER (at the cost of more memory)"],
+           "27 (-8 = 19) Correct; 187MB memory (max 1.2GB); WT_mean=63s; Errors=0", "BETTER (at the cost of more memory)"],
     "15": ["Serial Memo Manual dicts IDS (NO PARALLELIZATION and with EQUALS_WITH_IS)",
            "27 Correct; 475MB memory (max 2.9GB); WT_mean=62.4s; Errors=0", "SAME (worse memory)"],
     // Corrected by adding subprocess memory (only issue: cannot know if new subprocesses reuse same memory area as before)

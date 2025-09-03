@@ -90,21 +90,18 @@ class RCNF:
         return (v, negTree, posTree, absTree)
 
     """
-    Note: It is absolutely infeasible to replace lru_cache with a manual dict tuple2tuple cache in order to clean it periodically.
-    
-    We would have to iterate over all the trees stored in the cache and check whether they are a subtree (at the beginning of 
-    eliminate_variables) of the tree corresponding to the current formula. That would be much more expensive than in the cached version.
+    Note: another possibility to cache nodes would be to use a dict manually. That would make possible the option to cleanup the 
+        cache periodically. We would need to iterate through the tree structure of the RCNF at the beginning of the eliminate_variable
+        function (where we have access to the root node) and store the found nodes in a set. Then, we would need to iterate through 
+        the stored nodes to check if they are in the set. If they are not, we can delete them. We haven't implemented it (TODO) because, 
+        presumably, the higher cost of nested tuples' hash function could be costly in terms of time. A possible solution would be to 
+        use the memory direction (the id()) of the nodes, taking advantage of the fact that we avoid node repetition with their caching.
 
-    Considering possible solutions, weak references could be interesting. However, with the weakref module we cannot weakly reference 
+    Another possible solution would be weak references. However, with the weakref module we cannot weakly reference 
     tuples or lists, nor have dictionaries where both keys and values are weak references (only one or the other). I think the second 
     limitation could be overcome by using dicts with key-value pairs both pointing to the same weak reference created directly with 
     weakref.ref(obj), and then, at cleanup time, simply checking whether ref() = key() = value() is None and removing it from the dictionary. 
     But the first limitation is insurmountable.
-
-    Therefore, the best option to keep avoiding the creation of repeated tuples/nodes is to use lru_cache. We could use a manual dict, 
-    but since we cannot even perform periodic cleanup that way, it is better to simplify the implementation by using a tool that already 
-    handles the dict. Furthermore, in this function we don't have extra parameters or ways of reordering them by commutativity that would 
-    justify doing it manually.
     """
 
     @lru_cache(maxsize=None)
