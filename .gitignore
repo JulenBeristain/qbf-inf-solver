@@ -44,3 +44,5 @@ venv.bak/
 data/qdimacs20.tar.zst
 data/qdimacs.tar.xz
 data/klieber2017-qdimacs.zip
+# To avoid uploading some extra instances that were previously commited to Github
+archivos_grandes.txt
